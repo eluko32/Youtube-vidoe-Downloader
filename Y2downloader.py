@@ -12,24 +12,38 @@ import logging
 import queue
 import sys
 import subprocess
+import shutil
+import re
+from contextlib import contextmanager
 
 # --- Path and Environment Setup ---
 def get_ffmpeg_path():
-    """ Get the path to ffmpeg.exe, handling PyInstaller bundling. """
+    """ Find the path to ffmpeg executable. """
     if getattr(sys, 'frozen', False):
         base_path = sys._MEIPASS
-    else:
-        base_path = os.path.dirname(os.path.abspath(__file__))
-    # Assuming ffmpeg.exe is directly in the base_path or MEIPASS
-    return os.path.join(base_path, 'ffmpeg.exe')
+        ffmpeg_path = os.path.join(base_path, 'ffmpeg.exe')
+        if os.path.exists(ffmpeg_path):
+            return ffmpeg_path
+    # Fallback to system ffmpeg
+    ffmpeg_path = shutil.which('ffmpeg')
+    if ffmpeg_path:
+        return ffmpeg_path
+    # Additional paths to check
+    possible_paths = [
+        '/usr/local/bin/ffmpeg',
+        '/usr/bin/ffmpeg',
+        os.path.join(os.path.expanduser('~'), 'ffmpeg', 'bin', 'ffmpeg.exe')
+    ]
+    for path in possible_paths:
+        if os.path.exists(path):
+            return path
+    return None
 
 FFMPEG_PATH = get_ffmpeg_path()
-
-# Add the ffmpeg directory to the system PATH to prevent yt-dlp warnings
-# This part might need to be adjusted based on how ffmpeg is distributed with the app
-ffmpeg_dir = os.path.dirname(FFMPEG_PATH)
-if os.path.exists(ffmpeg_dir) and ffmpeg_dir not in os.environ['PATH']:
-    os.environ['PATH'] = ffmpeg_dir + os.pathsep + os.environ['PATH']
+if FFMPEG_PATH:
+    ffmpeg_dir = os.path.dirname(FFMPEG_PATH)
+    if ffmpeg_dir not in os.environ['PATH']:
+        os.environ['PATH'] = ffmpeg_dir + os.pathsep + os.environ['PATH']
 
 # Configure logging
 logging.basicConfig(filename='debug.log', level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -40,8 +54,25 @@ USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTM
 
 # --- Global Variables ---
 download_queue = queue.Queue()
-details_queue = queue.Queue() # New queue for video details
+details_queue = queue.Queue()
 active_downloads = {}
+
+# --- Timeout Context Manager (Unix-only) ---
+@contextmanager
+def timeout(seconds):
+    """ Context manager for setting a timeout (Unix only). """
+    if sys.platform != "win32":
+        import signal
+        def handler(signum, frame):
+            raise TimeoutError("Operation timed out")
+        signal.signal(signal.SIGALRM, handler)
+        signal.alarm(seconds)
+        try:
+            yield
+        finally:
+            signal.alarm(0)
+    else:
+        yield  # No timeout support on Windows
 
 class DownloadTask:
     def __init__(self, master, url, folder, quality_format, is_playlist, info_dict):
@@ -83,7 +114,6 @@ class DownloadTask:
         self.status_label = ctk.CTkLabel(self.frame, text="Starting...", font=("Roboto", 12, "italic"))
         self.status_label.pack(side="top", padx=10, pady=5, anchor="w")
 
-        # --- Action Buttons Frame ---
         self.actions_frame = ctk.CTkFrame(self.frame, fg_color="transparent")
         self.actions_frame.pack(fill="x", padx=10, pady=5)
 
@@ -97,6 +127,7 @@ class DownloadTask:
         self.start_time = time.time()
         active_downloads[self.task_id] = self
         thread = threading.Thread(target=self._download_thread, daemon=True)
+        thread.start Ascending
         thread.start()
 
     def _progress_hook(self, d):
@@ -110,15 +141,17 @@ class DownloadTask:
                 downloaded_mb = downloaded_size / (1024 * 1024)
                 total_mb = total_size / (1024 * 1024)
                 elapsed_time = time.time() - self.start_time
+                speed = (downloaded_size / (1024 * 1024)) / elapsed_time if elapsed_time > 0 else 0
                 download_queue.put({
                     'task_id': self.task_id, 'status': 'downloading',
                     'progress': progress, 'downloaded_mb': downloaded_mb,
-                    'total_mb': total_mb, 'elapsed_time': elapsed_time
+                    'total_mb': total_mb, 'elapsed_time': elapsed_time,
+                    'speed': speed
                 })
         elif d['status'] == 'finished':
             elapsed_time = time.time() - self.start_time
             download_queue.put({
-                'task_id': self.task_id, 'status': 'finished', 
+                'task_id': self.task_id, 'status': 'finished',
                 'filepath': d.get('filename'), 'elapsed_time': elapsed_time
             })
 
@@ -134,6 +167,7 @@ class DownloadTask:
                 'ffmpeg_location': FFMPEG_PATH,
                 'postprocessors': [],
                 'user_agent': USER_AGENT,
+                'socket_timeout': 15,
             }
             if 'audio' in self.quality_format or self.quality_format == 'bestaudio/best':
                 ydl_opts['postprocessors'].append({
@@ -149,10 +183,8 @@ class DownloadTask:
             logging.error(f"Unhandled exception for {self.url}: {e}")
             download_queue.put({'task_id': self.task_id, 'status': 'error', 'message': f"An error occurred: {e}"})
         finally:
-            # Ensure 'done' status is always sent, even after error/cancel
-            if self.task_id in active_downloads: # Only remove if it was an active download
+            if self.task_id in active_downloads:
                 download_queue.put({'task_id': self.task_id, 'status': 'done'})
-
 
     def update_ui(self, data):
         status = data.get('status')
@@ -160,31 +192,22 @@ class DownloadTask:
             self.progress_bar.set(data['progress'])
             self.main_progress_label.configure(text=f"Download Progress: {data['progress'] * 100:.2f}%")
             self.size_progress_label.configure(text=f"Downloaded: {data['downloaded_mb']:.2f} MB / {data['total_mb']:.2f} MB")
-            self.time_label.configure(text=f"Elapsed Time: {data['elapsed_time']:.2f} seconds")
+            self.time_label.configure(text=f"Elapsed Time: {data['elapsed_time']:.2f} seconds, Speed: {data['speed']:.2f} MB/s")
             self.status_label.configure(text="Downloading...")
         elif status == 'finished':
             self.progress_bar.set(1)
             self.main_progress_label.configure(text="Download Progress: 100.00%")
             self.status_label.configure(text=f"Completed in {data['elapsed_time']:.2f} seconds.")
-            
             intermediate_path = data.get('filepath')
             if 'audio' in self.quality_format or self.quality_format == 'bestaudio/best':
-                # yt-dlp might output a .webm or .m4a then convert to .mp3
-                # We need to find the actual final .mp3 file
                 base, _ = os.path.splitext(intermediate_path)
-                # Check for the .mp3 file, as yt-dlp might save it with a different name after conversion
                 potential_mp3_path = base + '.mp3'
-                if os.path.exists(potential_mp3_path):
-                    self.filepath = potential_mp3_path
-                else:
-                    self.filepath = intermediate_path # Fallback if mp3 not found or conversion failed
+                self.filepath = potential_mp3_path if os.path.exists(potential_mp3_path) else intermediate_path
             else:
                 self.filepath = intermediate_path
-
             self.cancel_button.pack_forget()
             self.open_folder_button.pack(side="right", padx=(0, 5))
             self.play_file_button.pack(side="right", padx=(0, 5))
-
         elif status == 'error':
             self.status_label.configure(text=data['message'], text_color="red")
             self.cancel_button.configure(state="disabled")
@@ -194,11 +217,8 @@ class DownloadTask:
 
     def cancel(self):
         self.cancel_flag = True
-        # The progress hook will raise an error, which will be caught by the thread
-        # and then the 'cancelled' status will be put into the queue.
-        # We don't need to put 'cancelled' here directly as it will be handled by the thread.
+        self.cancel_button.configure(text="Cancelling...", state="disabled")
         messagebox.showinfo("Cancelling", f"Attempting to cancel download for: {self.title_label.cget('text')}")
-
 
     def open_containing_folder(self):
         if self.filepath:
@@ -239,16 +259,14 @@ class App(ctk.CTk):
         self.thumbnail_photo = None
 
         self._create_widgets()
-        self.process_queues() # Renamed to process all queues
-        
-        if not os.path.exists(FFMPEG_PATH):
-            messagebox.showwarning("FFmpeg Not Found", f"ffmpeg.exe not found at the expected location: {FFMPEG_PATH}. Downloads requiring format merging (e.g., video + audio) or audio conversion (e.g., to MP3) may fail.")
+        self.process_queues()
+        if not FFMPEG_PATH:
+            messagebox.showwarning("FFmpeg Not Found", f"FFmpeg not found. Downloads requiring format merging or audio conversion may fail.")
 
     def _create_widgets(self):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(3, weight=1)
 
-        # --- Input Frame ---
         input_frame = ctk.CTkFrame(self, corner_radius=10)
         input_frame.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
         input_frame.grid_columnconfigure(1, weight=1)
@@ -260,14 +278,13 @@ class App(ctk.CTk):
         paste_button = ctk.CTkButton(input_frame, text="Paste", command=self.paste_from_clipboard, width=80)
         paste_button.grid(row=0, column=2, padx=(0, 10), pady=10)
 
-        self.load_details_button = ctk.CTkButton(input_frame, text="Load Details", command=self.start_load_video_details_thread) # Changed command
+        self.load_details_button = ctk.CTkButton(input_frame, text="Load Details", command=self.start_load_video_details_thread)
         self.load_details_button.grid(row=0, column=3, padx=10, pady=10)
 
         self.theme_switch = ctk.CTkSwitch(input_frame, text="Dark Mode", command=self.toggle_theme)
         self.theme_switch.grid(row=0, column=4, padx=10, pady=10)
         self.theme_switch.select()
 
-        # --- Details & Options Frame ---
         details_options_frame = ctk.CTkFrame(self, corner_radius=10)
         details_options_frame.grid(row=1, column=0, padx=10, pady=10, sticky="ew")
         details_options_frame.grid_columnconfigure(1, weight=1)
@@ -286,7 +303,7 @@ class App(ctk.CTk):
 
         ctk.CTkLabel(details_options_frame, text="Quality:").grid(row=2, column=0, padx=10, pady=5, sticky="w")
         self.quality_var = tk.StringVar()
-        self.quality_combobox = ctk.CTkComboBox(details_options_frame, variable=self.quality_var, state="readonly", values=["Load details first"]) # Initial state
+        self.quality_combobox = ctk.CTkComboBox(details_options_frame, variable=self.quality_var, state="readonly", values=["Load details first"])
         self.quality_combobox.grid(row=2, column=1, padx=10, pady=5, sticky="ew")
 
         ctk.CTkLabel(details_options_frame, text="Playlist:").grid(row=3, column=0, padx=10, pady=5, sticky="w")
@@ -294,14 +311,12 @@ class App(ctk.CTk):
         self.playlist_combobox = ctk.CTkComboBox(details_options_frame, variable=self.playlist_var, values=["Single Video", "Entire Playlist"], state="readonly")
         self.playlist_combobox.grid(row=3, column=1, padx=10, pady=5, sticky="ew")
 
-        # --- Action Buttons ---
         action_frame = ctk.CTkFrame(self, corner_radius=10)
         action_frame.grid(row=2, column=0, padx=10, pady=10, sticky="ew")
         action_frame.grid_columnconfigure(0, weight=1)
         self.download_button = ctk.CTkButton(action_frame, text="Download", command=self.start_new_download, height=40, font=("Roboto", 16, "bold"), state="disabled")
         self.download_button.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
 
-        # --- Downloads Area ---
         downloads_container = ctk.CTkScrollableFrame(self, label_text="Downloads")
         downloads_container.grid(row=3, column=0, padx=10, pady=10, sticky="nsew")
         self.downloads_frame = downloads_container
@@ -320,75 +335,105 @@ class App(ctk.CTk):
         except tk.TclError:
             pass
 
+    def is_valid_youtube_url(self, url):
+        youtube_regex = (
+            r'(https?://)?(www\.)?(youtube\.com|youtu\.be)/'
+            r'(watch\?v=|embed/|v/|.+\?v=)?([^&=%\?]{11})'
+        )
+        return bool(re.match(youtube_regex, url))
+
     def start_load_video_details_thread(self):
         url = self.url_entry.get()
         if not url:
             messagebox.showerror("Error", "Please enter a YouTube URL")
             return
+        if not self.is_valid_youtube_url(url):
+            messagebox.showerror("Error", "Please enter a valid YouTube URL")
+            self.video_info_label.configure(text="Invalid URL. Please try again.")
+            self.load_details_button.configure(state="normal")
+            return
 
         self.video_info_label.configure(text="Loading video details... Please wait.")
         self.download_button.configure(state="disabled")
-        self.load_details_button.configure(state="disabled") # Disable button during loading
+        self.load_details_button.configure(text="Loading...", state="disabled")
         self.quality_combobox.configure(values=["Loading..."], state="readonly")
         self.quality_combobox.set("Loading...")
-        self.thumbnail_label.configure(image=None) # Clear previous thumbnail
-        self.update_idletasks() # Force UI update
+        self.thumbnail_label.configure(image=None)
+        self.progress_bar = ctk.CTkProgressBar(self, mode="indeterminate")
+        self.progress_bar.grid(row=4, column=0, padx=10, pady=10, sticky="ew")
+        self.progress_bar.start()
+        self.update_idletasks()
 
-        # Start the loading process in a new thread
         thread = threading.Thread(target=self._load_video_details_in_thread, args=(url,), daemon=True)
         thread.start()
 
     def _load_video_details_in_thread(self, url):
-        logging.info(f"Starting to load details for URL: {url}")
+        logging.info(f"Thread started for {url}")
         info_dict = None
         thumbnail_img_data = None
         error_message = None
-        try:
-            ydl_opts = {
-                'quiet': True, 
-                'skip_download': True,
-                'user_agent': USER_AGENT,
-                'cachedir': False, # Disable caching
-                'skip_update': True, # Don't check for updates
-                'nocheckcertificate': True, # Don't verify SSL certificates
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                logging.info("Calling ydl.extract_info...")
-                info_dict = ydl.extract_info(url, download=False)
-                logging.info("ydl.extract_info finished.")
-            
-            thumbnail_url = info_dict.get('thumbnail')
-            if thumbnail_url:
-                try:
-                    logging.info(f"Downloading thumbnail from: {thumbnail_url}")
+        retries = 3
+        retry_delay = 2
+
+        for attempt in range(retries):
+            try:
+                with timeout(30):
+                    ydl_opts = {
+                        'quiet': True,
+                        'skip_download': True,
+                        'user_agent': USER_AGENT,
+                        'cachedir': False,
+                        'skip_update': True,
+                        'nocheckcertificate': True,
+                        'socket_timeout': 15,
+                    }
+                    if self.playlist_var.get() == "Entire Playlist":
+                        ydl_opts['extract_flat'] = True
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info_dict = ydl.extract_info(url, download=False)
+                thumbnail_url = info_dict.get('thumbnail')
+                if thumbnail_url:
                     response = requests.get(thumbnail_url, timeout=10, headers={'User-Agent': USER_AGENT})
                     response.raise_for_status()
                     thumbnail_img_data = BytesIO(response.content)
-                    logging.info("Thumbnail downloaded successfully.")
-                except Exception as e:
-                    logging.error(f"Failed to load thumbnail in thread: {e}")
-                    thumbnail_img_data = None # Ensure it's None if loading fails
+                break
+            except TimeoutError:
+                logging.warning(f"Timeout on attempt {attempt + 1} for {url}")
+                error_message = "Operation timed out while loading video details."
+                if attempt < retries - 1:
+                    time.sleep(retry_delay)
+                    continue
+            except yt_dlp.utils.DownloadError as e:
+                error_message = f"Could not load video details: {e}"
+                logging.error(f"yt-dlp error loading details for {url}: {e}")
+                if attempt < retries - 1:
+                    time.sleep(retry_delay)
+                    continue
+            except Exception as e:
+                error_message = f"An unexpected error occurred: {e}"
+                logging.error(f"Unhandled exception loading details for {url}: {e}")
+                break
+        else:
+            logging.error(f"All {retries} attempts failed for {url}")
 
-        except yt_dlp.utils.DownloadError as e:
-            error_message = f"Could not load video details: {e}"
-            logging.error(f"yt-dlp error loading details for {url}: {e}")
-        except Exception as e:
-            error_message = f"An unexpected error occurred: {e}"
-            logging.error(f"Unhandled exception loading details for {url}: {e}")
-        finally:
-            logging.info("Putting details into queue.")
-            details_queue.put({
-                'info_dict': info_dict,
-                'thumbnail_img_data': thumbnail_img_data,
-                'error_message': error_message
-            })
+        logging.info(f"Thread completed for {url}")
+        details_queue.put({
+            'info_dict': info_dict,
+            'thumbnail_img_data': thumbnail_img_data,
+            'error_message': error_message
+        })
 
     def _update_details_ui(self, data):
+        if hasattr(self, 'progress_bar'):
+            self.progress_bar.stop()
+            self.progress_bar.grid_forget()
+        self.load_details_button.configure(text="Load Details", state="normal")
+        self.thumbnail_photo = None
+        self.info_dict = None
+
         info_dict = data.get('info_dict')
         thumbnail_img_data = data.get('thumbnail_img_data')
         error_message = data.get('error_message')
-
-        self.load_details_button.configure(state="normal") # Re-enable button
 
         if error_message:
             messagebox.showerror("Error", error_message)
@@ -396,10 +441,9 @@ class App(ctk.CTk):
             self.quality_combobox.configure(values=["Load details first"], state="readonly")
             self.quality_combobox.set("Load details first")
             self.thumbnail_label.configure(image=None)
-            self.info_dict = None # Clear previous info
             return
 
-        self.info_dict = info_dict # Store the info_dict for download task
+        self.info_dict = info_dict
         title = info_dict.get('title', 'Unknown Title')
         duration = info_dict.get('duration', 0)
         uploader = info_dict.get('uploader', 'Unknown Uploader')
@@ -409,7 +453,6 @@ class App(ctk.CTk):
         if thumbnail_img_data:
             try:
                 img = Image.open(thumbnail_img_data)
-                # Resize thumbnail to fit while maintaining aspect ratio
                 img.thumbnail((160, 90), Image.Resampling.LANCZOS)
                 self.thumbnail_photo = ctk.CTkImage(light_image=img, dark_image=img, size=(img.width, img.height))
                 self.thumbnail_label.configure(image=self.thumbnail_photo)
@@ -421,30 +464,21 @@ class App(ctk.CTk):
 
         formats = info_dict.get('formats', [])
         quality_options = []
-        # Add video formats
         for f in formats:
-            # Filter out formats that are just video or just audio if we want combined
-            # For simplicity, let's include formats with video and audio, or just audio
             if f.get('vcodec') != 'none' and f.get('acodec') != 'none':
-                resolution = f.get('resolution', 'Unknown Resolution')
-                ext = f.get('ext', 'Unknown Ext')
+                resolution = f.get('height', 'Unknown') if f.get('height') else 'Unknown Resolution'
+                ext = f.get('ext', 'mp4')
                 filesize = f.get('filesize') or f.get('filesize_approx')
                 size_mb = f"{filesize / (1024*1024):.2f} MB" if filesize else "Unknown size"
-                quality_options.append((f['format_id'], f"{resolution} ({ext}) - {size_mb}"))
-            elif f.get('vcodec') == 'none' and f.get('acodec') != 'none': # Pure audio streams
-                ext = f.get('ext', 'Unknown Ext')
+                quality_options.append((f['format_id'], f"Video: {resolution}p ({ext}) - {size_mb}"))
+            elif f.get('vcodec') == 'none' and f.get('acodec') != 'none':
+                ext = f.get('ext', 'mp3')
                 filesize = f.get('filesize') or f.get('filesize_approx')
                 size_mb = f"{filesize / (1024*1024):.2f} MB" if filesize else "Unknown size"
-                quality_options.append((f['format_id'], f"Audio Only ({ext}) - {size_mb}"))
-
-        # Add the 'bestaudio/best' option explicitly for MP3 conversion
+                quality_options.append((f['format_id'], f"Audio: {ext.upper()} - {size_mb}"))
         quality_options.append(('bestaudio/best', "Audio only (mp3) - Best Quality"))
-        
-        # Sort quality options if needed (e.g., by resolution)
-        # For now, keep the order from yt-dlp which is usually by quality
-        
+
         if quality_options:
-            # Update combobox values and set default
             self.quality_combobox.configure(values=[q[1] for q in quality_options], state="readonly")
             self.quality_map = {display: f_id for f_id, display in quality_options}
             self.quality_combobox.set(quality_options[0][1])
@@ -464,18 +498,17 @@ class App(ctk.CTk):
         url = self.url_entry.get()
         folder = self.folder_path.get()
         selected_quality_display = self.quality_combobox.get()
-        
+
         if not self.info_dict:
             messagebox.showerror("Error", "Please load video details first.")
             return
-
         if not all([url, folder, selected_quality_display]):
             messagebox.showerror("Error", "Please ensure URL, folder, and quality are set.")
             return
         if not os.path.exists(folder):
             messagebox.showerror("Error", "The selected download folder does not exist.")
             return
-        
+
         quality_format_id = self.quality_map.get(selected_quality_display)
         if not quality_format_id:
             messagebox.showerror("Error", "Invalid quality selected. Please load details again.")
@@ -485,11 +518,15 @@ class App(ctk.CTk):
         if is_playlist and not messagebox.askyesno("Playlist Download", "You have selected to download an entire playlist. This might take a long time and consume significant data. Continue?"):
             return
 
-        # Pass the already loaded info_dict to the DownloadTask
-        DownloadTask(self.downloads_frame, url, folder, quality_format_id, is_playlist, self.info_dict)
+        if is_playlist:
+            with yt_dlp.YoutubeDL({'quiet': True, 'extract_flat': True, 'user_agent': USER_AGENT}) as ydl:
+                playlist_info = ydl.extract_info(url, download=False)
+                for entry in playlist_info.get('entries', []):
+                    DownloadTask(self.downloads_frame, entry['url'], folder, quality_format_id, False, entry)
+        else:
+            DownloadTask(self.downloads_frame, url, folder, quality_format_id, is_playlist, self.info_dict)
 
     def process_queues(self):
-        # Process download queue
         try:
             while not download_queue.empty():
                 data = download_queue.get_nowait()
@@ -498,21 +535,20 @@ class App(ctk.CTk):
                 if task:
                     task.update_ui(data)
                     if data['status'] == 'done':
-                        # Clean up task from active_downloads when it's truly done
                         if task_id in active_downloads:
                             del active_downloads[task_id]
         except queue.Empty:
             pass
 
-        # Process details queue
         try:
             while not details_queue.empty():
                 data = details_queue.get_nowait()
                 self._update_details_ui(data)
+                self.update_idletasks()
         except queue.Empty:
             pass
-        finally:
-            self.after(100, self.process_queues) # Schedule next check
+
+        self.after(50, self.process_queues)
 
 if __name__ == "__main__":
     app = App()

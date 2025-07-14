@@ -458,3 +458,6 @@ DEBUG:PIL.Image:Importing XVThumbImagePlugin
 2025-07-14 23:23:31,083 - INFO - Calling ydl.extract_info...
 2025-07-14 23:24:29,981 - INFO - Starting to load details for URL: https://www.youtube.com/watch?v=GdRdp11m-aQ&list=RDGdRdp11m-aQ&start_radio=1&pp=oAcB
 2025-07-14 23:24:30,214 - INFO - Calling ydl.extract_info...
+2025-07-14 23:41:17,510 - DEBUG - [_load_video_details_in_thread] Starting for URL: https://www.youtube.com/watch?v=GdRdp11m-aQ&list=RDGdRdp11m-aQ&start_radio=1&pp=oAcB
+2025-07-14 23:41:17,513 - DEBUG - [_load_video_details_in_thread] Initializing YoutubeDL for https://www.youtube.com/watch?v=GdRdp11m-aQ&list=RDGdRdp11m-aQ&start_radio=1&pp=oAcB
+2025-07-14 23:41:17,765 - DEBUG - [_load_video_details_in_thread] Calling extract_info for https://www.youtube.com/watch?v=GdRdp11m-aQ&list=RDGdRdp11m-aQ&start_radio=1&pp=oAcB
