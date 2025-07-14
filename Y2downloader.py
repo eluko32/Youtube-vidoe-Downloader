@@ -1,5 +1,6 @@
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+import customtkinter as ctk
+from tkinter import filedialog, messagebox
 import yt_dlp
 import os
 import threading
@@ -10,16 +11,13 @@ import time
 import logging
 import queue
 import sys
-from ttkthemes import ThemedTk
 
 # --- Path and Environment Setup ---
 def get_ffmpeg_path():
     """ Get the path to ffmpeg.exe, handling PyInstaller bundling. """
     if getattr(sys, 'frozen', False):
-        # Running in a bundle
         base_path = sys._MEIPASS
     else:
-        # Running as a script
         base_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, 'ffmpeg.exe')
 
@@ -35,13 +33,14 @@ logging.basicConfig(filename='debug.log', level=logging.DEBUG, format='%(asctime
 
 # --- Configuration ---
 DEFAULT_DOWNLOAD_FOLDER = os.path.expanduser("~/Downloads")
+ctk.set_appearance_mode("Dark")
+ctk.set_default_color_theme("blue")
 
 # --- Global Variables ---
 download_queue = queue.Queue()
-active_downloads = {} # Store active download tasks
+active_downloads = {}
 
 class DownloadTask:
-    """Encapsulates a single download operation and its UI elements."""
     def __init__(self, master, url, folder, quality_format, is_playlist, info_dict):
         self.master = master
         self.url = url
@@ -57,76 +56,61 @@ class DownloadTask:
         self.start_download()
 
     def _create_ui(self):
-        """Creates the UI frame for this download task."""
-        self.frame = ttk.Frame(self.master, style='Card.TFrame', padding=10)
-        self.frame.pack(fill="x", pady=5, padx=5)
+        self.frame = ctk.CTkFrame(self.master, corner_radius=10)
+        self.frame.pack(fill="x", pady=10, padx=5)
 
         title = self.info_dict.get('title', 'Unknown Title')
-        self.title_label = ttk.Label(self.frame, text=title, font=("Arial", 12, "bold"), wraplength=500, justify="left")
-        self.title_label.pack(side="top", padx=10, pady=5, anchor="w")
+        self.title_label = ctk.CTkLabel(self.frame, text=title, font=("Roboto", 14, "bold"), wraplength=550, justify="left")
+        self.title_label.pack(side="top", padx=10, pady=(10, 5), anchor="w")
 
-        self.main_progress_label = ttk.Label(self.frame, text="Download Progress: 0.00%")
+        self.main_progress_label = ctk.CTkLabel(self.frame, text="Download Progress: 0.00%", font=("Roboto", 12))
         self.main_progress_label.pack(side="top", padx=10, pady=2, anchor="w")
 
-        self.size_progress_label = ttk.Label(self.frame, text="Downloaded: 0.00 MB / 0.00 MB")
+        self.size_progress_label = ctk.CTkLabel(self.frame, text="Downloaded: 0.00 MB / 0.00 MB", font=("Roboto", 12))
         self.size_progress_label.pack(side="top", padx=10, pady=2, anchor="w")
 
-        self.time_label = ttk.Label(self.frame, text="Elapsed Time: 0.00 seconds")
+        self.time_label = ctk.CTkLabel(self.frame, text="Elapsed Time: 0.00 seconds", font=("Roboto", 12))
         self.time_label.pack(side="top", padx=10, pady=2, anchor="w")
 
-        self.progress_var = tk.DoubleVar()
-        self.progress_bar = ttk.Progressbar(self.frame, variable=self.progress_var, maximum=100, mode='determinate')
-        self.progress_bar.pack(fill="x", padx=10, pady=5, expand=True)
+        self.progress_bar = ctk.CTkProgressBar(self.frame, height=10, corner_radius=5)
+        self.progress_bar.set(0)
+        self.progress_bar.pack(fill="x", padx=10, pady=10, expand=True)
 
-        self.status_label = ttk.Label(self.frame, text="Starting...", font=("Arial", 10, "italic"))
+        self.status_label = ctk.CTkLabel(self.frame, text="Starting...", font=("Roboto", 12, "italic"))
         self.status_label.pack(side="top", padx=10, pady=5, anchor="w")
 
-        self.cancel_button = ttk.Button(self.frame, text="Cancel", command=self.cancel, style="Danger.TButton")
-        self.cancel_button.pack(side="right", padx=10, pady=5)
+        self.cancel_button = ctk.CTkButton(self.frame, text="Cancel", command=self.cancel, fg_color="#d9534f", hover_color="#c9302c")
+        self.cancel_button.pack(side="right", padx=10, pady=10)
 
     def start_download(self):
-        """Starts the download in a new thread."""
         self.start_time = time.time()
         active_downloads[self.task_id] = self
-        
         thread = threading.Thread(target=self._download_thread, daemon=True)
         thread.start()
 
     def _progress_hook(self, d):
-        """yt-dlp progress hook. Puts updates into the thread-safe queue."""
         if self.cancel_flag:
             raise yt_dlp.utils.DownloadError("Download canceled by the user")
-
         if d['status'] == 'downloading':
             total_size = d.get('total_bytes') or d.get('total_bytes_estimate')
             downloaded_size = d.get('downloaded_bytes', 0)
-            
             if total_size and downloaded_size:
-                progress = (downloaded_size / total_size) * 100
+                progress = downloaded_size / total_size
                 downloaded_mb = downloaded_size / (1024 * 1024)
                 total_mb = total_size / (1024 * 1024)
                 elapsed_time = time.time() - self.start_time
-
-                update_data = {
-                    'task_id': self.task_id,
-                    'status': 'downloading',
-                    'progress': progress,
-                    'downloaded_mb': downloaded_mb,
-                    'total_mb': total_mb,
-                    'elapsed_time': elapsed_time
-                }
-                download_queue.put(update_data)
-        
+                download_queue.put({
+                    'task_id': self.task_id, 'status': 'downloading',
+                    'progress': progress, 'downloaded_mb': downloaded_mb,
+                    'total_mb': total_mb, 'elapsed_time': elapsed_time
+                })
         elif d['status'] == 'finished':
             elapsed_time = time.time() - self.start_time
             download_queue.put({'task_id': self.task_id, 'status': 'finished', 'elapsed_time': elapsed_time})
 
-
     def _download_thread(self):
-        """The actual download logic that runs in a separate thread."""
         try:
             output_path = os.path.join(self.folder, '%(title)s.%(ext)s')
-            
             ydl_opts = {
                 'format': self.quality_format,
                 'outtmpl': output_path,
@@ -137,18 +121,12 @@ class DownloadTask:
                 'postprocessors': [],
                 'cookies_from_browser': ('edge',),
             }
-
-            # Add audio conversion if format is audio-only
             if 'audio' in self.quality_format or self.quality_format == 'bestaudio/best':
-                 ydl_opts['postprocessors'].append({
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'mp3',
-                    'preferredquality': '192',
+                ydl_opts['postprocessors'].append({
+                    'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192',
                 })
-
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([self.url])
-
         except yt_dlp.utils.DownloadError as e:
             if "canceled" not in str(e):
                 logging.error(f"DownloadError for {self.url}: {e}")
@@ -157,51 +135,38 @@ class DownloadTask:
             logging.error(f"Unhandled exception for {self.url}: {e}")
             download_queue.put({'task_id': self.task_id, 'status': 'error', 'message': f"An error occurred: {e}"})
         finally:
-            # Signal that the task is complete, regardless of outcome
             download_queue.put({'task_id': self.task_id, 'status': 'done'})
 
-
     def update_ui(self, data):
-        """Updates the UI elements for this task from the main thread."""
         status = data.get('status')
         if status == 'downloading':
-            self.progress_var.set(data['progress'])
-            self.main_progress_label.config(text=f"Download Progress: {data['progress']:.2f}%")
-            self.size_progress_label.config(text=f"Downloaded: {data['downloaded_mb']:.2f} MB / {data['total_mb']:.2f} MB")
-            self.time_label.config(text=f"Elapsed Time: {data['elapsed_time']:.2f} seconds")
-            self.status_label.config(text="Downloading...")
+            self.progress_bar.set(data['progress'])
+            self.main_progress_label.configure(text=f"Download Progress: {data['progress'] * 100:.2f}%")
+            self.size_progress_label.configure(text=f"Downloaded: {data['downloaded_mb']:.2f} MB / {data['total_mb']:.2f} MB")
+            self.time_label.configure(text=f"Elapsed Time: {data['elapsed_time']:.2f} seconds")
+            self.status_label.configure(text="Downloading...")
         elif status == 'finished':
-            self.progress_var.set(100)
-            self.main_progress_label.config(text="Download Progress: 100.00%")
-            self.status_label.config(text=f"Completed in {data['elapsed_time']:.2f} seconds.")
-            self.cancel_button.config(state="disabled")
+            self.progress_bar.set(1)
+            self.main_progress_label.configure(text="Download Progress: 100.00%")
+            self.status_label.configure(text=f"Completed in {data['elapsed_time']:.2f} seconds.")
+            self.cancel_button.configure(state="disabled")
         elif status == 'error':
-            self.status_label.config(text=data['message'], foreground="red")
-            self.cancel_button.config(state="disabled")
+            self.status_label.configure(text=data['message'], text_color="red")
+            self.cancel_button.configure(state="disabled")
         elif status == 'cancelled':
-            self.status_label.config(text="Download cancelled.", foreground="orange")
-            self.cancel_button.config(state="disabled")
-
+            self.status_label.configure(text="Download cancelled.", text_color="orange")
+            self.cancel_button.configure(state="disabled")
 
     def cancel(self):
-        """Flags the download for cancellation."""
         self.cancel_flag = True
         download_queue.put({'task_id': self.task_id, 'status': 'cancelled'})
         messagebox.showinfo("Cancelled", f"Cancelling download for: {self.title_label.cget('text')}")
 
-
-class App:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("YouTube Video Downloader")
-        self.root.geometry("700x800")
-
-        # --- Style Configuration ---
-        self.style = ttk.Style()
-        self.style.theme_use('arc')
-        self.style.configure('Card.TFrame', relief='raised', borderwidth=2)
-        self.style.configure('Danger.TButton', foreground='white', background='#d9534f')
-        self.style.configure('Success.TButton', foreground='white', background='#5cb85c')
+class App(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        self.title("YouTube Video Downloader")
+        self.geometry("700x800")
 
         self.info_dict = None
         self.thumbnail_photo = None
@@ -213,75 +178,58 @@ class App:
             messagebox.showwarning("FFmpeg Not Found", f"ffmpeg.exe not found at the expected location: {FFMPEG_PATH}. Downloads requiring format merging may fail.")
 
     def _create_widgets(self):
-        # --- Main container frame ---
-        main_frame = ttk.Frame(self.root, padding=10)
-        main_frame.pack(fill="both", expand=True)
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(3, weight=1)
 
         # --- Input Frame ---
-        input_frame = ttk.LabelFrame(main_frame, text="Input", padding=10)
-        input_frame.pack(fill="x", pady=5)
-
-        ttk.Label(input_frame, text="YouTube URL:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.url_entry = ttk.Entry(input_frame, width=60)
-        self.url_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-        
-        self.load_details_button = ttk.Button(input_frame, text="Load Video Details", command=self.load_video_details)
-        self.load_details_button.grid(row=0, column=2, padx=5, pady=5)
-        
+        input_frame = ctk.CTkFrame(self, corner_radius=10)
+        input_frame.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
         input_frame.grid_columnconfigure(1, weight=1)
 
-        # --- Details Frame ---
-        details_frame = ttk.LabelFrame(main_frame, text="Video Details", padding=10)
-        details_frame.pack(fill="x", pady=5)
+        ctk.CTkLabel(input_frame, text="YouTube URL:").grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        self.url_entry = ctk.CTkEntry(input_frame, placeholder_text="Enter YouTube URL")
+        self.url_entry.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
+        self.load_details_button = ctk.CTkButton(input_frame, text="Load Details", command=self.load_video_details)
+        self.load_details_button.grid(row=0, column=2, padx=10, pady=10)
 
-        self.thumbnail_label = ttk.Label(details_frame)
-        self.thumbnail_label.grid(row=0, column=0, rowspan=4, padx=10, pady=5)
+        # --- Details & Options Frame ---
+        details_options_frame = ctk.CTkFrame(self, corner_radius=10)
+        details_options_frame.grid(row=1, column=0, padx=10, pady=10, sticky="ew")
+        details_options_frame.grid_columnconfigure(1, weight=1)
 
-        self.video_info_label = ttk.Label(details_frame, text="Enter a URL and click 'Load Details'", justify="left")
-        self.video_info_label.grid(row=0, column=1, sticky="w", padx=10)
+        self.thumbnail_label = ctk.CTkLabel(details_options_frame, text="")
+        self.thumbnail_label.grid(row=0, column=0, rowspan=4, padx=10, pady=10)
 
-        # --- Options Frame ---
-        options_frame = ttk.LabelFrame(main_frame, text="Download Options", padding=10)
-        options_frame.pack(fill="x", pady=5)
+        self.video_info_label = ctk.CTkLabel(details_options_frame, text="Enter a URL and click 'Load Details'", justify="left", wraplength=400)
+        self.video_info_label.grid(row=0, column=1, sticky="w", padx=10, pady=10)
 
-        ttk.Label(options_frame, text="Download Folder:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        ctk.CTkLabel(details_options_frame, text="Download Folder:").grid(row=1, column=0, padx=10, pady=5, sticky="w")
         self.folder_path = tk.StringVar(value=DEFAULT_DOWNLOAD_FOLDER)
-        self.folder_entry = ttk.Entry(options_frame, textvariable=self.folder_path, width=50)
-        self.folder_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-        ttk.Button(options_frame, text="Browse", command=self.browse_folder, style="Danger.TButton").grid(row=0, column=2, padx=5, pady=5)
+        self.folder_entry = ctk.CTkEntry(details_options_frame, textvariable=self.folder_path)
+        self.folder_entry.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
+        ctk.CTkButton(details_options_frame, text="Browse", command=self.browse_folder, width=100).grid(row=1, column=2, padx=10, pady=5)
 
-        ttk.Label(options_frame, text="Quality:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        ctk.CTkLabel(details_options_frame, text="Quality:").grid(row=2, column=0, padx=10, pady=5, sticky="w")
         self.quality_var = tk.StringVar()
-        self.quality_combobox = ttk.Combobox(options_frame, textvariable=self.quality_var, state="readonly", width=47)
-        self.quality_combobox.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+        self.quality_combobox = ctk.CTkComboBox(details_options_frame, variable=self.quality_var, state="readonly")
+        self.quality_combobox.grid(row=2, column=1, padx=10, pady=5, sticky="ew")
 
-        ttk.Label(options_frame, text="Playlist:").grid(row=2, column=0, padx=5, pady=5, sticky="w")
+        ctk.CTkLabel(details_options_frame, text="Playlist:").grid(row=3, column=0, padx=10, pady=5, sticky="w")
         self.playlist_var = tk.StringVar(value="Single Video")
-        self.playlist_combobox = ttk.Combobox(options_frame, textvariable=self.playlist_var, values=["Single Video", "Entire Playlist"], state="readonly", width=47)
-        self.playlist_combobox.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
-        
-        options_frame.grid_columnconfigure(1, weight=1)
+        self.playlist_combobox = ctk.CTkComboBox(details_options_frame, variable=self.playlist_var, values=["Single Video", "Entire Playlist"], state="readonly")
+        self.playlist_combobox.grid(row=3, column=1, padx=10, pady=5, sticky="ew")
 
         # --- Action Buttons ---
-        action_frame = ttk.Frame(main_frame)
-        action_frame.pack(fill="x", pady=10)
-        self.download_button = ttk.Button(action_frame, text="Download", command=self.start_new_download, style="Success.TButton", state="disabled")
-        self.download_button.pack()
+        action_frame = ctk.CTkFrame(self, corner_radius=10)
+        action_frame.grid(row=2, column=0, padx=10, pady=10, sticky="ew")
+        action_frame.grid_columnconfigure(0, weight=1)
+        self.download_button = ctk.CTkButton(action_frame, text="Download", command=self.start_new_download, height=40, font=("Roboto", 16, "bold"), state="disabled")
+        self.download_button.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
 
         # --- Downloads Area ---
-        downloads_container = ttk.LabelFrame(main_frame, text="Downloads", padding=10)
-        downloads_container.pack(fill="both", expand=True, pady=5)
-
-        canvas = tk.Canvas(downloads_container, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(downloads_container, orient="vertical", command=canvas.yview)
-        self.downloads_frame = ttk.Frame(canvas)
-
-        self.downloads_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=self.downloads_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        downloads_container = ctk.CTkScrollableFrame(self, label_text="Downloads")
+        downloads_container.grid(row=3, column=0, padx=10, pady=10, sticky="nsew")
+        self.downloads_frame = downloads_container
 
     def load_video_details(self):
         url = self.url_entry.get()
@@ -289,9 +237,9 @@ class App:
             messagebox.showerror("Error", "Please enter a YouTube URL")
             return
 
-        self.video_info_label.config(text="Loading...")
-        self.download_button.config(state="disabled")
-        self.root.update_idletasks()
+        self.video_info_label.configure(text="Loading...")
+        self.download_button.configure(state="disabled")
+        self.update_idletasks()
 
         try:
             ydl_opts = {
@@ -303,36 +251,28 @@ class App:
                 self.info_dict = ydl.extract_info(url, download=False)
         except Exception as e:
             messagebox.showerror("Error", f"Could not load video details: {e}")
-            self.video_info_label.config(text="Failed to load details.")
+            self.video_info_label.configure(text="Failed to load details.")
             return
 
-        # --- Update Info Label ---
         title = self.info_dict.get('title', 'Unknown Title')
         duration = self.info_dict.get('duration', 0)
         uploader = self.info_dict.get('uploader', 'Unknown Uploader')
-        
-        info_text = (
-            f"• Title: {title}\n"
-            f"• Duration: {duration // 60} min {duration % 60} sec\n"
-            f"• Uploader: {uploader}"
-        )
-        self.video_info_label.config(text=info_text)
+        info_text = f"Title: {title}\nDuration: {duration // 60}m {duration % 60}s\nUploader: {uploader}"
+        self.video_info_label.configure(text=info_text)
 
-        # --- Update Thumbnail ---
         thumbnail_url = self.info_dict.get('thumbnail')
         if thumbnail_url:
             try:
                 response = requests.get(thumbnail_url, timeout=10)
                 response.raise_for_status()
                 img_data = BytesIO(response.content)
-                img = Image.open(img_data).resize((160, 90), Image.LANCZOS)
-                self.thumbnail_photo = ImageTk.PhotoImage(img)
-                self.thumbnail_label.config(image=self.thumbnail_photo)
+                img = Image.open(img_data)
+                self.thumbnail_photo = ctk.CTkImage(light_image=img, dark_image=img, size=(160, 90))
+                self.thumbnail_label.configure(image=self.thumbnail_photo)
             except Exception as e:
                 logging.error(f"Failed to load thumbnail: {e}")
-                self.thumbnail_label.config(image=None) # Clear image on failure
+                self.thumbnail_label.configure(image=None)
 
-        # --- Populate Quality ComboBox ---
         formats = self.info_dict.get('formats', [])
         quality_options = []
         for f in formats:
@@ -340,27 +280,17 @@ class App:
             ext = f.get('ext')
             filesize = f.get('filesize') or f.get('filesize_approx')
             size_mb = f"{filesize / (1024*1024):.2f} MB" if filesize else "Unknown size"
-            
-            # Filter for common, non-adaptive formats for simplicity
             if f.get('vcodec') != 'none' and f.get('acodec') != 'none':
                  quality_options.append((f['format_id'], f"{resolution} ({ext}) - {size_mb}"))
-        
-        # Add audio only option
         quality_options.append(('bestaudio/best', "Audio only (mp3) - Best Quality"))
 
-        self.quality_combobox['values'] = [q[1] for q in quality_options]
-        self.quality_combobox.bind("<<ComboboxSelected>>", lambda e: self.quality_var.set(self.quality_combobox.get()))
-        
-        # Store format_id and display text separately
+        self.quality_combobox.configure(values=[q[1] for q in quality_options])
         self.quality_map = {display: f_id for f_id, display in quality_options}
-        
         if quality_options:
             self.quality_combobox.set(quality_options[0][1])
-            self.quality_var.set(quality_options[0][1])
-            self.download_button.config(state="normal")
+            self.download_button.configure(state="normal")
         else:
-            self.video_info_label.config(text="No downloadable formats found.")
-
+            self.video_info_label.configure(text="No downloadable formats found.")
 
     def browse_folder(self):
         folder_selected = filedialog.askdirectory()
@@ -370,8 +300,7 @@ class App:
     def start_new_download(self):
         url = self.url_entry.get()
         folder = self.folder_path.get()
-        selected_quality_display = self.quality_var.get()
-        
+        selected_quality_display = self.quality_combobox.get()
         if not all([url, folder, selected_quality_display]):
             messagebox.showerror("Error", "Please ensure URL, folder, and quality are set.")
             return
@@ -381,36 +310,28 @@ class App:
         
         quality_format_id = self.quality_map.get(selected_quality_display)
         is_playlist = self.playlist_var.get() == "Entire Playlist"
-
-        if is_playlist:
-            if not messagebox.askyesno("Playlist Download", "You have selected to download an entire playlist. This may take a long time. Continue?"):
-                return
+        if is_playlist and not messagebox.askyesno("Playlist Download", "You have selected to download an entire playlist. Continue?"):
+            return
 
         DownloadTask(self.downloads_frame, url, folder, quality_format_id, is_playlist, self.info_dict)
 
     def process_queue(self):
-        """Processes messages from the download queue to update the GUI."""
         try:
             while not download_queue.empty():
                 data = download_queue.get_nowait()
                 task_id = data.get('task_id')
                 task = active_downloads.get(task_id)
-
                 if task:
                     if data['status'] == 'done':
-                        # Clean up the task from the active list
                         if task_id in active_downloads:
                             del active_downloads[task_id]
                     else:
                         task.update_ui(data)
-
         except queue.Empty:
             pass
         finally:
-            self.root.after(100, self.process_queue)
-
+            self.after(100, self.process_queue)
 
 if __name__ == "__main__":
-    root = ThemedTk(theme="arc")
-    app = App(root)
-    root.mainloop()
+    app = App()
+    app.mainloop()
