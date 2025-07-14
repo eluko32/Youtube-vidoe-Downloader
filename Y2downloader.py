@@ -10,6 +10,7 @@ import time
 import logging
 import queue
 import sys
+from ttkthemes import ThemedTk
 
 # --- Path and Environment Setup ---
 def get_ffmpeg_path():
@@ -57,30 +58,30 @@ class DownloadTask:
 
     def _create_ui(self):
         """Creates the UI frame for this download task."""
-        self.frame = tk.Frame(self.master, bg="#f4f4f4", bd=2, relief="groove")
+        self.frame = ttk.Frame(self.master, style='Card.TFrame', padding=10)
         self.frame.pack(fill="x", pady=5, padx=5)
 
         title = self.info_dict.get('title', 'Unknown Title')
-        self.title_label = tk.Label(self.frame, text=title, font=("Arial", 12, "bold"), bg="#f4f4f4", fg="#333333", wraplength=500, justify="left")
+        self.title_label = ttk.Label(self.frame, text=title, font=("Arial", 12, "bold"), wraplength=500, justify="left")
         self.title_label.pack(side="top", padx=10, pady=5, anchor="w")
 
-        self.main_progress_label = tk.Label(self.frame, text="Download Progress: 0.00%", font=("Arial", 10), bg="#f4f4f4", fg="#333333")
+        self.main_progress_label = ttk.Label(self.frame, text="Download Progress: 0.00%")
         self.main_progress_label.pack(side="top", padx=10, pady=2, anchor="w")
 
-        self.size_progress_label = tk.Label(self.frame, text="Downloaded: 0.00 MB / 0.00 MB", font=("Arial", 10), bg="#f4f4f4", fg="#333333")
+        self.size_progress_label = ttk.Label(self.frame, text="Downloaded: 0.00 MB / 0.00 MB")
         self.size_progress_label.pack(side="top", padx=10, pady=2, anchor="w")
 
-        self.time_label = tk.Label(self.frame, text="Elapsed Time: 0.00 seconds", font=("Arial", 10), bg="#f4f4f4", fg="#333333")
+        self.time_label = ttk.Label(self.frame, text="Elapsed Time: 0.00 seconds")
         self.time_label.pack(side="top", padx=10, pady=2, anchor="w")
 
         self.progress_var = tk.DoubleVar()
         self.progress_bar = ttk.Progressbar(self.frame, variable=self.progress_var, maximum=100, mode='determinate')
         self.progress_bar.pack(fill="x", padx=10, pady=5, expand=True)
 
-        self.status_label = tk.Label(self.frame, text="Starting...", font=("Arial", 10, "italic"), bg="#f4f4f4", fg="#555555")
+        self.status_label = ttk.Label(self.frame, text="Starting...", font=("Arial", 10, "italic"))
         self.status_label.pack(side="top", padx=10, pady=5, anchor="w")
 
-        self.cancel_button = tk.Button(self.frame, text="Cancel", command=self.cancel, bg="#d9534f", fg="white", font=("Arial", 9))
+        self.cancel_button = ttk.Button(self.frame, text="Cancel", command=self.cancel, style="Danger.TButton")
         self.cancel_button.pack(side="right", padx=10, pady=5)
 
     def start_download(self):
@@ -175,10 +176,10 @@ class DownloadTask:
             self.status_label.config(text=f"Completed in {data['elapsed_time']:.2f} seconds.")
             self.cancel_button.config(state="disabled")
         elif status == 'error':
-            self.status_label.config(text=data['message'], fg="red")
+            self.status_label.config(text=data['message'], foreground="red")
             self.cancel_button.config(state="disabled")
         elif status == 'cancelled':
-            self.status_label.config(text="Download cancelled.", fg="orange")
+            self.status_label.config(text="Download cancelled.", foreground="orange")
             self.cancel_button.config(state="disabled")
 
 
@@ -194,8 +195,13 @@ class App:
         self.root = root
         self.root.title("YouTube Video Downloader")
         self.root.geometry("700x800")
-        self.root.config(bg="#e0e0e0")
-        self.root.resizable(True, True)
+
+        # --- Style Configuration ---
+        self.style = ttk.Style()
+        self.style.theme_use('arc')
+        self.style.configure('Card.TFrame', relief='raised', borderwidth=2)
+        self.style.configure('Danger.TButton', foreground='white', background='#d9534f')
+        self.style.configure('Success.TButton', foreground='white', background='#5cb85c')
 
         self.info_dict = None
         self.thumbnail_photo = None
@@ -208,48 +214,48 @@ class App:
 
     def _create_widgets(self):
         # --- Main container frame ---
-        main_frame = tk.Frame(self.root, bg="#e0e0e0")
-        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        main_frame = ttk.Frame(self.root, padding=10)
+        main_frame.pack(fill="both", expand=True)
 
         # --- Input Frame ---
-        input_frame = tk.LabelFrame(main_frame, text="Input", bg="#f0f0f0", font=("Arial", 12))
+        input_frame = ttk.LabelFrame(main_frame, text="Input", padding=10)
         input_frame.pack(fill="x", pady=5)
 
-        tk.Label(input_frame, text="YouTube URL:", font=("Arial", 12), bg="#f0f0f0").grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.url_entry = tk.Entry(input_frame, width=60)
+        ttk.Label(input_frame, text="YouTube URL:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        self.url_entry = ttk.Entry(input_frame, width=60)
         self.url_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
         
-        self.load_details_button = tk.Button(input_frame, text="Load Video Details", command=self.load_video_details, bg="#5bc0de", fg="white", font=("Arial", 10))
+        self.load_details_button = ttk.Button(input_frame, text="Load Video Details", command=self.load_video_details)
         self.load_details_button.grid(row=0, column=2, padx=5, pady=5)
         
         input_frame.grid_columnconfigure(1, weight=1)
 
         # --- Details Frame ---
-        details_frame = tk.LabelFrame(main_frame, text="Video Details", bg="#f0f0f0", font=("Arial", 12))
+        details_frame = ttk.LabelFrame(main_frame, text="Video Details", padding=10)
         details_frame.pack(fill="x", pady=5)
 
-        self.thumbnail_label = tk.Label(details_frame, bg="#f0f0f0")
+        self.thumbnail_label = ttk.Label(details_frame)
         self.thumbnail_label.grid(row=0, column=0, rowspan=4, padx=10, pady=5)
 
-        self.video_info_label = tk.Label(details_frame, text="Enter a URL and click 'Load Details'", font=("Arial", 11), bg="#f0f0f0", justify="left")
+        self.video_info_label = ttk.Label(details_frame, text="Enter a URL and click 'Load Details'", justify="left")
         self.video_info_label.grid(row=0, column=1, sticky="w", padx=10)
 
         # --- Options Frame ---
-        options_frame = tk.LabelFrame(main_frame, text="Download Options", bg="#f0f0f0", font=("Arial", 12))
+        options_frame = ttk.LabelFrame(main_frame, text="Download Options", padding=10)
         options_frame.pack(fill="x", pady=5)
 
-        tk.Label(options_frame, text="Download Folder:", font=("Arial", 12), bg="#f0f0f0").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        ttk.Label(options_frame, text="Download Folder:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.folder_path = tk.StringVar(value=DEFAULT_DOWNLOAD_FOLDER)
-        self.folder_entry = tk.Entry(options_frame, textvariable=self.folder_path, width=50)
+        self.folder_entry = ttk.Entry(options_frame, textvariable=self.folder_path, width=50)
         self.folder_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-        tk.Button(options_frame, text="Browse", command=self.browse_folder, bg="#d9534f", fg="white", font=("Arial", 10)).grid(row=0, column=2, padx=5, pady=5)
+        ttk.Button(options_frame, text="Browse", command=self.browse_folder, style="Danger.TButton").grid(row=0, column=2, padx=5, pady=5)
 
-        tk.Label(options_frame, text="Quality:", font=("Arial", 12), bg="#f0f0f0").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        ttk.Label(options_frame, text="Quality:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.quality_var = tk.StringVar()
         self.quality_combobox = ttk.Combobox(options_frame, textvariable=self.quality_var, state="readonly", width=47)
         self.quality_combobox.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
 
-        tk.Label(options_frame, text="Playlist:", font=("Arial", 12), bg="#f0f0f0").grid(row=2, column=0, padx=5, pady=5, sticky="w")
+        ttk.Label(options_frame, text="Playlist:").grid(row=2, column=0, padx=5, pady=5, sticky="w")
         self.playlist_var = tk.StringVar(value="Single Video")
         self.playlist_combobox = ttk.Combobox(options_frame, textvariable=self.playlist_var, values=["Single Video", "Entire Playlist"], state="readonly", width=47)
         self.playlist_combobox.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
@@ -257,18 +263,18 @@ class App:
         options_frame.grid_columnconfigure(1, weight=1)
 
         # --- Action Buttons ---
-        action_frame = tk.Frame(main_frame, bg="#e0e0e0")
+        action_frame = ttk.Frame(main_frame)
         action_frame.pack(fill="x", pady=10)
-        self.download_button = tk.Button(action_frame, text="Download", command=self.start_new_download, width=20, height=2, bg="#5cb85c", fg="white", font=("Arial", 12, "bold"), state="disabled")
+        self.download_button = ttk.Button(action_frame, text="Download", command=self.start_new_download, style="Success.TButton", state="disabled")
         self.download_button.pack()
 
         # --- Downloads Area ---
-        downloads_container = tk.LabelFrame(main_frame, text="Downloads", bg="#f0f0f0", font=("Arial", 12))
+        downloads_container = ttk.LabelFrame(main_frame, text="Downloads", padding=10)
         downloads_container.pack(fill="both", expand=True, pady=5)
 
-        canvas = tk.Canvas(downloads_container, bg="#f0f0f0", highlightthickness=0)
-        scrollbar = tk.Scrollbar(downloads_container, orient="vertical", command=canvas.yview)
-        self.downloads_frame = tk.Frame(canvas, bg="#f0f0f0")
+        canvas = tk.Canvas(downloads_container, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(downloads_container, orient="vertical", command=canvas.yview)
+        self.downloads_frame = ttk.Frame(canvas)
 
         self.downloads_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.create_window((0, 0), window=self.downloads_frame, anchor="nw")
@@ -405,6 +411,6 @@ class App:
 
 
 if __name__ == "__main__":
-    root = tk.Tk()
+    root = ThemedTk(theme="arc")
     app = App(root)
     root.mainloop()
