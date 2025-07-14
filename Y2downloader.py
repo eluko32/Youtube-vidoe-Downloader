@@ -8,369 +8,398 @@ import requests
 from io import BytesIO
 import time
 import logging
+import queue
+import sys
+
+# --- Path and Environment Setup ---
+def get_ffmpeg_path():
+    """ Get the path to ffmpeg.exe, handling PyInstaller bundling. """
+    if getattr(sys, 'frozen', False):
+        # Running in a bundle
+        base_path = sys._MEIPASS
+    else:
+        # Running as a script
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, 'ffmpeg.exe')
+
+FFMPEG_PATH = get_ffmpeg_path()
+
+# Add the ffmpeg directory to the system PATH to prevent yt-dlp warnings
+ffmpeg_dir = os.path.dirname(FFMPEG_PATH)
+if ffmpeg_dir not in os.environ['PATH']:
+    os.environ['PATH'] = ffmpeg_dir + os.pathsep + os.environ['PATH']
 
 # Configure logging
-logging.basicConfig(filename='debug.log', level=logging.DEBUG)
+logging.basicConfig(filename='debug.log', level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Global flag to track cancel status
+# --- Configuration ---
+DEFAULT_DOWNLOAD_FOLDER = os.path.expanduser("~/Downloads")
 
-cancel_flag = False
+# --- Global Variables ---
+download_queue = queue.Queue()
+active_downloads = {} # Store active download tasks
 
-# Start time to track elapsed time
-start_time = None
+class DownloadTask:
+    """Encapsulates a single download operation and its UI elements."""
+    def __init__(self, master, url, folder, quality_format, is_playlist, info_dict):
+        self.master = master
+        self.url = url
+        self.folder = folder
+        self.quality_format = quality_format
+        self.is_playlist = is_playlist
+        self.info_dict = info_dict
+        self.cancel_flag = False
+        self.start_time = None
+        self.task_id = id(self)
 
-# Absolute path to ffmpeg (update this path as needed)
-FFMPEG_PATH = os.path.join(os.path.dirname(__file__), 'ffmpeg.exe')
+        self._create_ui()
+        self.start_download()
 
-# Function to update the progress bar and percentage for each download
-def progress_hook(d):
-    global cancel_flag, start_time
-    if cancel_flag:
-        raise yt_dlp.utils.DownloadError("Download canceled by the user")
+    def _create_ui(self):
+        """Creates the UI frame for this download task."""
+        self.frame = tk.Frame(self.master, bg="#f4f4f4", bd=2, relief="groove")
+        self.frame.pack(fill="x", pady=5, padx=5)
 
-    if d['status'] == 'downloading':
-        try:
+        title = self.info_dict.get('title', 'Unknown Title')
+        self.title_label = tk.Label(self.frame, text=title, font=("Arial", 12, "bold"), bg="#f4f4f4", fg="#333333", wraplength=500, justify="left")
+        self.title_label.pack(side="top", padx=10, pady=5, anchor="w")
+
+        self.main_progress_label = tk.Label(self.frame, text="Download Progress: 0.00%", font=("Arial", 10), bg="#f4f4f4", fg="#333333")
+        self.main_progress_label.pack(side="top", padx=10, pady=2, anchor="w")
+
+        self.size_progress_label = tk.Label(self.frame, text="Downloaded: 0.00 MB / 0.00 MB", font=("Arial", 10), bg="#f4f4f4", fg="#333333")
+        self.size_progress_label.pack(side="top", padx=10, pady=2, anchor="w")
+
+        self.time_label = tk.Label(self.frame, text="Elapsed Time: 0.00 seconds", font=("Arial", 10), bg="#f4f4f4", fg="#333333")
+        self.time_label.pack(side="top", padx=10, pady=2, anchor="w")
+
+        self.progress_var = tk.DoubleVar()
+        self.progress_bar = ttk.Progressbar(self.frame, variable=self.progress_var, maximum=100, mode='determinate')
+        self.progress_bar.pack(fill="x", padx=10, pady=5, expand=True)
+
+        self.status_label = tk.Label(self.frame, text="Starting...", font=("Arial", 10, "italic"), bg="#f4f4f4", fg="#555555")
+        self.status_label.pack(side="top", padx=10, pady=5, anchor="w")
+
+        self.cancel_button = tk.Button(self.frame, text="Cancel", command=self.cancel, bg="#d9534f", fg="white", font=("Arial", 9))
+        self.cancel_button.pack(side="right", padx=10, pady=5)
+
+    def start_download(self):
+        """Starts the download in a new thread."""
+        self.start_time = time.time()
+        active_downloads[self.task_id] = self
+        
+        thread = threading.Thread(target=self._download_thread, daemon=True)
+        thread.start()
+
+    def _progress_hook(self, d):
+        """yt-dlp progress hook. Puts updates into the thread-safe queue."""
+        if self.cancel_flag:
+            raise yt_dlp.utils.DownloadError("Download canceled by the user")
+
+        if d['status'] == 'downloading':
             total_size = d.get('total_bytes') or d.get('total_bytes_estimate')
             downloaded_size = d.get('downloaded_bytes', 0)
+            
             if total_size and downloaded_size:
                 progress = (downloaded_size / total_size) * 100
                 downloaded_mb = downloaded_size / (1024 * 1024)
                 total_mb = total_size / (1024 * 1024)
-                elapsed_time = time.time() - start_time if start_time else 0
+                elapsed_time = time.time() - self.start_time
 
-                # Update GUI elements
-                progress_var.set(progress)
-                progress_label.config(text=f"{progress:.2f}%")
-                main_progress_label.config(text=f"Download Progress: {progress:.2f}%")
-                size_progress_label.config(text=f"Downloaded: {downloaded_mb:.2f} MB / {total_mb:.2f} MB")
-                time_label.config(text=f"Elapsed Time: {elapsed_time:.2f} seconds")
+                update_data = {
+                    'task_id': self.task_id,
+                    'status': 'downloading',
+                    'progress': progress,
+                    'downloaded_mb': downloaded_mb,
+                    'total_mb': total_mb,
+                    'elapsed_time': elapsed_time
+                }
+                download_queue.put(update_data)
+        
+        elif d['status'] == 'finished':
+            elapsed_time = time.time() - self.start_time
+            download_queue.put({'task_id': self.task_id, 'status': 'finished', 'elapsed_time': elapsed_time})
 
-        except Exception as e:
-            status_log.insert(tk.END, f"Error updating progress: {e}\n")
-            logging.error(f"Error updating progress: {e}")
 
-# Function to download YouTube video or audio
-def download_video(url, folder, download_format, playlist_option, progress_var, progress_label, title_label, status_log, main_progress_label, size_progress_label, time_label):
-    global cancel_flag, start_time
-
-    if not url:
-        messagebox.showerror("Error", "Please enter a YouTube URL")
-        return
-
-    if not folder:
-        messagebox.showerror("Error", "Please select a download folder")
-        return
-
-    # Check if download folder exists
-    if not os.path.exists(folder):
-        messagebox.showerror("Error", "The selected download folder does not exist.")
-        return
-
-    cancel_flag = False
-    status_log.insert(tk.END, "Starting download...\n")
-    status_log.see(tk.END)
-    start_time = time.time()
-
-    try:
-        # Set options for yt-dlp based on the selected format
-        output_path = os.path.join(folder, '%(title)s.%(ext)s')
-        logging.debug(f"Output path for download: {output_path}")
-
-        if download_format == 'Audio':
+    def _download_thread(self):
+        """The actual download logic that runs in a separate thread."""
+        try:
+            output_path = os.path.join(self.folder, '%(title)s.%(ext)s')
+            
             ydl_opts = {
-                'format': 'bestaudio/best',
-                'postprocessors': [{
+                'format': self.quality_format,
+                'outtmpl': output_path,
+                'progress_hooks': [self._progress_hook],
+                'quiet': True,
+                'noplaylist': not self.is_playlist,
+                'ffmpeg_location': FFMPEG_PATH,
+                'postprocessors': [],
+            }
+
+            # Add audio conversion if format is audio-only
+            if 'audio' in self.quality_format or self.quality_format == 'bestaudio/best':
+                 ydl_opts['postprocessors'].append({
                     'key': 'FFmpegExtractAudio',
                     'preferredcodec': 'mp3',
                     'preferredquality': '192',
-                }],
-                'outtmpl': output_path,
-                'progress_hooks': [progress_hook],
-                'quiet': True,
-                'concurrent_fragment_downloads': 1,
-                'ffmpeg_location': FFMPEG_PATH,
-            }
-        else:  # Video format
-            ydl_opts = {
-                'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]',
-                'outtmpl': output_path,
-                'progress_hooks': [progress_hook],
-                'quiet': True,
-                'concurrent_fragment_downloads': 1,
-                'ffmpeg_location': FFMPEG_PATH,
-            }
+                })
 
-        # Add playlist options
-        if playlist_option == 'Single Video':
-            ydl_opts.update({'noplaylist': True})
-        else:
-            ydl_opts.update({'noplaylist': False})
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([self.url])
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info_dict = ydl.extract_info(url, download=False)
+        except yt_dlp.utils.DownloadError as e:
+            if "canceled" not in str(e):
+                logging.error(f"DownloadError for {self.url}: {e}")
+                download_queue.put({'task_id': self.task_id, 'status': 'error', 'message': f"Download failed: {e}"})
+        except Exception as e:
+            logging.error(f"Unhandled exception for {self.url}: {e}")
+            download_queue.put({'task_id': self.task_id, 'status': 'error', 'message': f"An error occurred: {e}"})
+        finally:
+            # Signal that the task is complete, regardless of outcome
+            download_queue.put({'task_id': self.task_id, 'status': 'done'})
 
-            if playlist_option == 'Entire Playlist':
-                if 'entries' in info_dict and len(info_dict['entries']) > 0:
-                    titles = [entry.get('title', 'Unknown Title') for entry in info_dict['entries']]
-                    titles_str = "\n".join(titles)
-                    download_all = messagebox.askyesno("Playlist Found", f"The following videos are in the playlist:\n\n{titles_str}\n\nDo you want to download all?")
-                    if not download_all:
-                        progress_label.config(text="Download cancelled.")
-                        status_log.insert(tk.END, "Download cancelled by user.\n")
-                        status_log.see(tk.END)
-                        return
-                else:
-                    messagebox.showerror("Error", "No videos found in the playlist.")
-                    status_log.insert(tk.END, "No videos found in the playlist.\n")
-                    status_log.see(tk.END)
-                    return
-            else:
-                title = info_dict.get('title', 'Unknown Title')
-                title_label.config(text=title)
 
-            # Start downloading
-            status_log.insert(tk.END, "Downloading...\n")
-            status_log.see(tk.END)
-            ydl.download([url])
-            progress_label.config(text="Download completed!")
-            main_progress_label.config(text="Download Progress: 100.00% (Completed)")
-            size_progress_label.config(text="Downloaded: Completed")
-            elapsed_time = time.time() - start_time
-            time_label.config(text=f"Elapsed Time: {elapsed_time:.2f} seconds (Completed)")
-            status_log.insert(tk.END, "Download completed successfully.\n")
-            status_log.see(tk.END)
-    except yt_dlp.utils.DownloadError as e:
-        progress_label.config(text="Download cancelled.")
-        main_progress_label.config(text="Download Progress: Cancelled")
-        size_progress_label.config(text="Downloaded: Cancelled")
-        time_label.config(text="Elapsed Time: Cancelled")
-        status_log.insert(tk.END, "Download cancelled.\n")
-        status_log.see(tk.END)
-        logging.error(f"Download cancelled: {e}")
-    except Exception as e:
-        progress_label.config(text=f"Error: {e}")
-        main_progress_label.config(text=f"Download Progress: Error")
-        size_progress_label.config(text="Downloaded: Error")
-        time_label.config(text="Elapsed Time: Error")
-        status_log.insert(tk.END, f"Error: {e}\n")
-        status_log.see(tk.END)
-        logging.error(f"Error during download: {e}")
+    def update_ui(self, data):
+        """Updates the UI elements for this task from the main thread."""
+        status = data.get('status')
+        if status == 'downloading':
+            self.progress_var.set(data['progress'])
+            self.main_progress_label.config(text=f"Download Progress: {data['progress']:.2f}%")
+            self.size_progress_label.config(text=f"Downloaded: {data['downloaded_mb']:.2f} MB / {data['total_mb']:.2f} MB")
+            self.time_label.config(text=f"Elapsed Time: {data['elapsed_time']:.2f} seconds")
+            self.status_label.config(text="Downloading...")
+        elif status == 'finished':
+            self.progress_var.set(100)
+            self.main_progress_label.config(text="Download Progress: 100.00%")
+            self.status_label.config(text=f"Completed in {data['elapsed_time']:.2f} seconds.")
+            self.cancel_button.config(state="disabled")
+        elif status == 'error':
+            self.status_label.config(text=data['message'], fg="red")
+            self.cancel_button.config(state="disabled")
+        elif status == 'cancelled':
+            self.status_label.config(text="Download cancelled.", fg="orange")
+            self.cancel_button.config(state="disabled")
 
-# Function to run the download in a separate thread
-def start_download_thread():
-    url = url_entry.get()
-    folder = folder_path.get()
-    download_format = format_var.get()
-    playlist_option = playlist_var.get()
 
-    # Create a frame to hold progress bar and label for the new download
-    download_frame = tk.Frame(downloads_frame, bg="#f4f4f4")
-    download_frame.pack(fill="x", pady=5)
+    def cancel(self):
+        """Flags the download for cancellation."""
+        self.cancel_flag = True
+        download_queue.put({'task_id': self.task_id, 'status': 'cancelled'})
+        messagebox.showinfo("Cancelled", f"Cancelling download for: {self.title_label.cget('text')}")
 
-    # Title label for the video being downloaded
-    global title_label
-    title_label = tk.Label(download_frame, text="Loading title...", font=("Arial", 12, "bold"), bg="#f4f4f4", fg="#333333")
-    title_label.pack(side="top", padx=10, pady=5, anchor="w")
 
-    # Progress label for individual download
-    global progress_label
-    progress_label = tk.Label(download_frame, text="0%", font=("Arial", 10), bg="#f4f4f4", fg="#333333")
-    progress_label.pack(side="right", padx=10)
+class App:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("YouTube Video Downloader")
+        self.root.geometry("700x800")
+        self.root.config(bg="#e0e0e0")
+        self.root.resizable(True, True)
 
-    # Main progress label for real-time download percentage
-    global main_progress_label
-    main_progress_label = tk.Label(download_frame, text="Download Progress: 0.00%", font=("Arial", 10), bg="#f4f4f4", fg="#333333")
-    main_progress_label.pack(side="top", padx=10, pady=5, anchor="w")
+        self.info_dict = None
+        self.thumbnail_photo = None
 
-    # Size progress label for real-time download in MB
-    global size_progress_label
-    size_progress_label = tk.Label(download_frame, text="Downloaded: 0.00 MB / 0.00 MB", font=("Arial", 10), bg="#f4f4f4", fg="#333333")
-    size_progress_label.pack(side="top", padx=10, pady=5, anchor="w")
+        self._create_widgets()
+        self.process_queue()
+        
+        if not os.path.exists(FFMPEG_PATH):
+            messagebox.showwarning("FFmpeg Not Found", f"ffmpeg.exe not found at the expected location: {FFMPEG_PATH}. Downloads requiring format merging may fail.")
 
-    # Time label for download progress
-    global time_label
-    time_label = tk.Label(download_frame, text="Elapsed Time: 0.00 seconds", font=("Arial", 10), bg="#f4f4f4", fg="#333333")
-    time_label.pack(side="top", padx=10, pady=5, anchor="w")
+    def _create_widgets(self):
+        # --- Main container frame ---
+        main_frame = tk.Frame(self.root, bg="#e0e0e0")
+        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-    # Progress bar for individual download
-    global progress_var
-    progress_var = tk.DoubleVar()
-    progress_bar = ttk.Progressbar(download_frame, variable=progress_var, maximum=100, mode='determinate')
-    progress_bar.pack(fill="x", padx=10, expand=True)
+        # --- Input Frame ---
+        input_frame = tk.LabelFrame(main_frame, text="Input", bg="#f0f0f0", font=("Arial", 12))
+        input_frame.pack(fill="x", pady=5)
 
-    # Status log for individual download
-    global status_log
-    status_log = tk.Text(download_frame, height=4, wrap='word', font=("Arial", 10), bg="#f4f4f4", fg="#333333")
-    status_log.pack(fill="x", padx=10, pady=5, expand=True)
+        tk.Label(input_frame, text="YouTube URL:", font=("Arial", 12), bg="#f0f0f0").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        self.url_entry = tk.Entry(input_frame, width=60)
+        self.url_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        
+        self.load_details_button = tk.Button(input_frame, text="Load Video Details", command=self.load_video_details, bg="#5bc0de", fg="white", font=("Arial", 10))
+        self.load_details_button.grid(row=0, column=2, padx=5, pady=5)
+        
+        input_frame.grid_columnconfigure(1, weight=1)
 
-    # Update status log to show loading message
-    status_log.insert(tk.END, "Loading video details...\n")
-    status_log.see(tk.END)
+        # --- Details Frame ---
+        details_frame = tk.LabelFrame(main_frame, text="Video Details", bg="#f0f0f0", font=("Arial", 12))
+        details_frame.pack(fill="x", pady=5)
 
-    # Start a new thread for this download
-    download_thread = threading.Thread(
-        target=download_video,
-        args=(url, folder, download_format, playlist_option, progress_var, progress_label, title_label, status_log, main_progress_label, size_progress_label, time_label),
-        daemon=True
-    )
-    download_thread.start()
+        self.thumbnail_label = tk.Label(details_frame, bg="#f0f0f0")
+        self.thumbnail_label.grid(row=0, column=0, rowspan=4, padx=10, pady=5)
 
-# Function to browse folder
-def browse_folder():
-    folder_selected = filedialog.askdirectory()
-    folder_path.set(folder_selected)
+        self.video_info_label = tk.Label(details_frame, text="Enter a URL and click 'Load Details'", font=("Arial", 11), bg="#f0f0f0", justify="left")
+        self.video_info_label.grid(row=0, column=1, sticky="w", padx=10)
 
-# Function to cancel the download
-def cancel_download():
-    global cancel_flag
-    cancel_flag = True
-    messagebox.showinfo("Cancelled", "Download has been cancelled.")
+        # --- Options Frame ---
+        options_frame = tk.LabelFrame(main_frame, text="Download Options", bg="#f0f0f0", font=("Arial", 12))
+        options_frame.pack(fill="x", pady=5)
 
-# Function to get and display the video thumbnail and additional video information
-def load_video_details():
-    url = url_entry.get()
-    if not url:
-        messagebox.showerror("Error", "Please enter a YouTube URL")
-        return
+        tk.Label(options_frame, text="Download Folder:", font=("Arial", 12), bg="#f0f0f0").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        self.folder_path = tk.StringVar(value=DEFAULT_DOWNLOAD_FOLDER)
+        self.folder_entry = tk.Entry(options_frame, textvariable=self.folder_path, width=50)
+        self.folder_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        tk.Button(options_frame, text="Browse", command=self.browse_folder, bg="#d9534f", fg="white", font=("Arial", 10)).grid(row=0, column=2, padx=5, pady=5)
 
-    video_info_label.config(text="Loading...", font=("Arial", 12))
-    root.update_idletasks()
+        tk.Label(options_frame, text="Quality:", font=("Arial", 12), bg="#f0f0f0").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        self.quality_var = tk.StringVar()
+        self.quality_combobox = ttk.Combobox(options_frame, textvariable=self.quality_var, state="readonly", width=47)
+        self.quality_combobox.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
 
-    try:
-        ydl_opts = {
-            'quiet': True,
-            'skip_download': True,
-            'force_generic_extractor': True,
-        }
+        tk.Label(options_frame, text="Playlist:", font=("Arial", 12), bg="#f0f0f0").grid(row=2, column=0, padx=5, pady=5, sticky="w")
+        self.playlist_var = tk.StringVar(value="Single Video")
+        self.playlist_combobox = ttk.Combobox(options_frame, textvariable=self.playlist_var, values=["Single Video", "Entire Playlist"], state="readonly", width=47)
+        self.playlist_combobox.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+        
+        options_frame.grid_columnconfigure(1, weight=1)
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info_dict = ydl.extract_info(url, download=False)
-            thumbnail_url = info_dict.get('thumbnail')
-            video_title = info_dict.get('title', 'Unknown Title')
-            video_duration = info_dict.get('duration', 'Unknown Duration')
-            uploader = info_dict.get('uploader', 'Unknown Uploader')
-            video_size = info_dict.get('filesize_approx', None)
+        # --- Action Buttons ---
+        action_frame = tk.Frame(main_frame, bg="#e0e0e0")
+        action_frame.pack(fill="x", pady=10)
+        self.download_button = tk.Button(action_frame, text="Download", command=self.start_new_download, width=20, height=2, bg="#5cb85c", fg="white", font=("Arial", 12, "bold"), state="disabled")
+        self.download_button.pack()
 
-            if thumbnail_url:
+        # --- Downloads Area ---
+        downloads_container = tk.LabelFrame(main_frame, text="Downloads", bg="#f0f0f0", font=("Arial", 12))
+        downloads_container.pack(fill="both", expand=True, pady=5)
+
+        canvas = tk.Canvas(downloads_container, bg="#f0f0f0", highlightthickness=0)
+        scrollbar = tk.Scrollbar(downloads_container, orient="vertical", command=canvas.yview)
+        self.downloads_frame = tk.Frame(canvas, bg="#f0f0f0")
+
+        self.downloads_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=self.downloads_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+    def load_video_details(self):
+        url = self.url_entry.get()
+        if not url:
+            messagebox.showerror("Error", "Please enter a YouTube URL")
+            return
+
+        self.video_info_label.config(text="Loading...")
+        self.download_button.config(state="disabled")
+        self.root.update_idletasks()
+
+        try:
+            ydl_opts = {'quiet': True, 'skip_download': True}
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                self.info_dict = ydl.extract_info(url, download=False)
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not load video details: {e}")
+            self.video_info_label.config(text="Failed to load details.")
+            return
+
+        # --- Update Info Label ---
+        title = self.info_dict.get('title', 'Unknown Title')
+        duration = self.info_dict.get('duration', 0)
+        uploader = self.info_dict.get('uploader', 'Unknown Uploader')
+        
+        info_text = (
+            f"• Title: {title}\n"
+            f"• Duration: {duration // 60} min {duration % 60} sec\n"
+            f"• Uploader: {uploader}"
+        )
+        self.video_info_label.config(text=info_text)
+
+        # --- Update Thumbnail ---
+        thumbnail_url = self.info_dict.get('thumbnail')
+        if thumbnail_url:
+            try:
                 response = requests.get(thumbnail_url, timeout=10)
                 response.raise_for_status()
                 img_data = BytesIO(response.content)
-                thumbnail_image = Image.open(img_data)
-                thumbnail_image = thumbnail_image.resize((200, 150), Image.LANCZOS)
-                thumbnail_photo = ImageTk.PhotoImage(thumbnail_image)
+                img = Image.open(img_data).resize((160, 90), Image.LANCZOS)
+                self.thumbnail_photo = ImageTk.PhotoImage(img)
+                self.thumbnail_label.config(image=self.thumbnail_photo)
+            except Exception as e:
+                logging.error(f"Failed to load thumbnail: {e}")
+                self.thumbnail_label.config(image=None) # Clear image on failure
 
-                global thumbnail_label
-                if 'thumbnail_label' not in globals():
-                    thumbnail_label = tk.Label(root, image=thumbnail_photo, bg="#f4f4f4")
-                    thumbnail_label.pack(pady=5)
-                else:
-                    thumbnail_label.config(image=thumbnail_photo)
-                    thumbnail_label.image = thumbnail_photo
+        # --- Populate Quality ComboBox ---
+        formats = self.info_dict.get('formats', [])
+        quality_options = []
+        for f in formats:
+            resolution = f.get('resolution', 'audio only')
+            ext = f.get('ext')
+            filesize = f.get('filesize') or f.get('filesize_approx')
+            size_mb = f"{filesize / (1024*1024):.2f} MB" if filesize else "Unknown size"
+            
+            # Filter for common, non-adaptive formats for simplicity
+            if f.get('vcodec') != 'none' and f.get('acodec') != 'none':
+                 quality_options.append((f['format_id'], f"{resolution} ({ext}) - {size_mb}"))
+        
+        # Add audio only option
+        quality_options.append(('bestaudio/best', "Audio only (mp3) - Best Quality"))
 
-            video_size_mb = f"{video_size / (1024 * 1024):.2f}" if isinstance(video_size, int) else 'Unknown'
-            video_info_label.config(text=(
-                f"• Title: {video_title}\n"
-                f"• Duration: {video_duration // 60} min {video_duration % 60} sec\n"
-                f"• Uploader: {uploader}\n"
-                f"• Size: {video_size_mb} MB"
-            ))
+        self.quality_combobox['values'] = [q[1] for q in quality_options]
+        self.quality_combobox.bind("<<ComboboxSelected>>", lambda e: self.quality_var.set(self.quality_combobox.get()))
+        
+        # Store format_id and display text separately
+        self.quality_map = {display: f_id for f_id, display in quality_options}
+        
+        if quality_options:
+            self.quality_combobox.set(quality_options[0][1])
+            self.quality_var.set(quality_options[0][1])
+            self.download_button.config(state="normal")
+        else:
+            self.video_info_label.config(text="No downloadable formats found.")
 
-    except requests.exceptions.RequestException as e:
-        messagebox.showerror("Error", f"Could not load video details: {e}")
-        logging.error(f"Error loading video thumbnail: {e}")
-    except Exception as e:
-        messagebox.showerror("Error", f"An error occurred while loading video details: {e}")
-        logging.error(f"Error loading video details: {e}")
 
-# Create the main application window
-root = tk.Tk()
-root.title("YouTube Video Downloader")
-root.geometry("600x1000")
-root.config(bg="#f4f4f4")
-root.resizable(False, False)
+    def browse_folder(self):
+        folder_selected = filedialog.askdirectory()
+        if folder_selected:
+            self.folder_path.set(folder_selected)
 
-# Set the default download folder
-folder_path = tk.StringVar(value=os.path.expanduser("~/Downloads"))
+    def start_new_download(self):
+        url = self.url_entry.get()
+        folder = self.folder_path.get()
+        selected_quality_display = self.quality_var.get()
+        
+        if not all([url, folder, selected_quality_display]):
+            messagebox.showerror("Error", "Please ensure URL, folder, and quality are set.")
+            return
+        if not os.path.exists(folder):
+            messagebox.showerror("Error", "The selected download folder does not exist.")
+            return
+        
+        quality_format_id = self.quality_map.get(selected_quality_display)
+        is_playlist = self.playlist_var.get() == "Entire Playlist"
 
-# URL label and entry field
-url_label = tk.Label(root, text="YouTube URL:", font=("Arial", 12), bg="#f4f4f4", fg="#333333")
-url_label.pack(pady=10)
-url_entry = tk.Entry(root, width=50)
-url_entry.pack(pady=5)
+        if is_playlist:
+            if not messagebox.askyesno("Playlist Download", "You have selected to download an entire playlist. This may take a long time. Continue?"):
+                return
 
-# Button to load video details
-video_details_button = tk.Button(root, text="Load Video Details", command=load_video_details, bg="#5bc0de", fg="white", font=("Arial", 10))
-video_details_button.pack(pady=5)
+        DownloadTask(self.downloads_frame, url, folder, quality_format_id, is_playlist, self.info_dict)
 
-# Label to display video information
-video_info_label = tk.Label(root, text="", font=("Arial", 12), bg="#f4f4f4", fg="#333333", justify="left")
-video_info_label.pack(pady=5)
+    def process_queue(self):
+        """Processes messages from the download queue to update the GUI."""
+        try:
+            while not download_queue.empty():
+                data = download_queue.get_nowait()
+                task_id = data.get('task_id')
+                task = active_downloads.get(task_id)
 
-# Folder selection label and button
-folder_label = tk.Label(root, text="Download Folder:", font=("Arial", 12), bg="#f4f4f4", fg="#333333")
-folder_label.pack(pady=10)
-folder_entry = tk.Entry(root, textvariable=folder_path, width=50)
-folder_entry.pack(pady=5)
-browse_button = tk.Button(root, text="Browse", command=browse_folder, bg="#d9534f", fg="white", font=("Arial", 10))
-browse_button.pack(pady=5)
+                if task:
+                    if data['status'] == 'done':
+                        # Clean up the task from the active list
+                        if task_id in active_downloads:
+                            del active_downloads[task_id]
+                    else:
+                        task.update_ui(data)
 
-# Create a frame to hold both the format and playlist options side by side
-options_frame = tk.Frame(root, bg="#f4f4f4")
-options_frame.pack(pady=10)
+        except queue.Empty:
+            pass
+        finally:
+            self.root.after(100, self.process_queue)
 
-# Format selection label and combobox
-format_label = tk.Label(options_frame, text="Select Format:", font=("Arial", 12), bg="#f4f4f4", fg="#333333")
-format_label.grid(row=0, column=0, padx=5, sticky="w")
 
-# Combobox to select format (Audio or Video)
-format_var = tk.StringVar()
-format_combobox = ttk.Combobox(options_frame, textvariable=format_var, values=["Audio", "Video"], state="readonly", width=15)
-format_combobox.grid(row=0, column=1, padx=5)
-format_combobox.set("Video")
-
-# Playlist selection label and combobox
-playlist_label = tk.Label(options_frame, text="Download Option:", font=("Arial", 12), bg="#f4f4f4", fg="#333333")
-playlist_label.grid(row=0, column=2, padx=5, sticky="w")
-
-# Combobox to select download option (Single Video or Entire Playlist)
-playlist_var = tk.StringVar()
-playlist_combobox = ttk.Combobox(options_frame, textvariable=playlist_var, values=["Single Video", "Entire Playlist"], state="readonly", width=20)
-playlist_combobox.grid(row=0, column=3, padx=5)
-playlist_combobox.set("Single Video")
-
-# Download button
-download_button = tk.Button(root, text="Download", command=start_download_thread, width=20, height=2, bg="#5bc0de", fg="white", font=("Arial", 10))
-download_button.pack(pady=10)
-
-# Cancel button
-cancel_button = tk.Button(root, text="Cancel", command=cancel_download, width=20, height=2, bg="#d9534f", fg="white", font=("Arial", 10))
-cancel_button.pack(pady=5)
-
-# Downloads frame (scrollable area for multiple downloads)
-downloads_frame = tk.Frame(root, bg="#f4f4f4")
-downloads_frame.pack(fill="both", expand=True, pady=10)
-
-# Scrollbar for downloads frame
-downloads_scrollbar = tk.Scrollbar(downloads_frame, orient="vertical")
-downloads_scrollbar.pack(side="right", fill="y")
-
-downloads_canvas = tk.Canvas(downloads_frame, yscrollcommand=downloads_scrollbar.set, bg="#f4f4f4")
-downloads_canvas.pack(side="left", fill="both", expand=True)
-
-downloads_scrollbar.config(command=downloads_canvas.yview)
-
-# Create a frame inside the canvas
-downloads_inner_frame = tk.Frame(downloads_canvas, bg="#f4f4f4")
-downloads_canvas.create_window((0, 0), window=downloads_inner_frame, anchor="nw")
-
-downloads_inner_frame.bind("<Configure>", lambda e: downloads_canvas.config(scrollregion=downloads_canvas.bbox("all")))
-
-# Reference downloads frame globally
-downloads_frame = downloads_inner_frame
-
-# Label for developer credit
-credit_label = tk.Label(root, text="Developed by: Elias Legese", font=("Arial", 10, "italic"), bg="#f4f4f4", fg="#333333")
-credit_label.pack(pady=50)
-
-# Start the GUI event loop
-root.mainloop()
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = App(root)
+    root.mainloop()
