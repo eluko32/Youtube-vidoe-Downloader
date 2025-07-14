@@ -33,8 +33,6 @@ logging.basicConfig(filename='debug.log', level=logging.DEBUG, format='%(asctime
 
 # --- Configuration ---
 DEFAULT_DOWNLOAD_FOLDER = os.path.expanduser("~/Downloads")
-ctk.set_appearance_mode("Dark")
-ctk.set_default_color_theme("blue")
 
 # --- Global Variables ---
 download_queue = queue.Queue()
@@ -167,6 +165,8 @@ class App(ctk.CTk):
         super().__init__()
         self.title("YouTube Video Downloader")
         self.geometry("700x800")
+        ctk.set_appearance_mode("Dark")
+        ctk.set_default_color_theme("blue")
 
         self.info_dict = None
         self.thumbnail_photo = None
@@ -195,6 +195,10 @@ class App(ctk.CTk):
 
         self.load_details_button = ctk.CTkButton(input_frame, text="Load Details", command=self.load_video_details)
         self.load_details_button.grid(row=0, column=3, padx=10, pady=10)
+
+        self.theme_switch = ctk.CTkSwitch(input_frame, text="Dark Mode", command=self.toggle_theme)
+        self.theme_switch.grid(row=0, column=4, padx=10, pady=10)
+        self.theme_switch.select()
 
         # --- Details & Options Frame ---
         details_options_frame = ctk.CTkFrame(self, corner_radius=10)
@@ -234,6 +238,12 @@ class App(ctk.CTk):
         downloads_container = ctk.CTkScrollableFrame(self, label_text="Downloads")
         downloads_container.grid(row=3, column=0, padx=10, pady=10, sticky="nsew")
         self.downloads_frame = downloads_container
+
+    def toggle_theme(self):
+        if self.theme_switch.get() == 1:
+            ctk.set_appearance_mode("Dark")
+        else:
+            ctk.set_appearance_mode("Light")
 
     def paste_from_clipboard(self):
         try:
