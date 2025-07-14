@@ -134,6 +134,7 @@ class DownloadTask:
                 'noplaylist': not self.is_playlist,
                 'ffmpeg_location': FFMPEG_PATH,
                 'postprocessors': [],
+                'cookies_from_browser': ('edge',),
             }
 
             # Add audio conversion if format is audio-only
@@ -287,7 +288,11 @@ class App:
         self.root.update_idletasks()
 
         try:
-            ydl_opts = {'quiet': True, 'skip_download': True}
+            ydl_opts = {
+                'quiet': True, 
+                'skip_download': True,
+                'cookies_from_browser': ('edge',)
+            }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 self.info_dict = ydl.extract_info(url, download=False)
         except Exception as e:
