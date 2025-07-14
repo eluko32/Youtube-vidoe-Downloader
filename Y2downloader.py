@@ -189,8 +189,12 @@ class App(ctk.CTk):
         ctk.CTkLabel(input_frame, text="YouTube URL:").grid(row=0, column=0, padx=10, pady=10, sticky="w")
         self.url_entry = ctk.CTkEntry(input_frame, placeholder_text="Enter YouTube URL")
         self.url_entry.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
+        
+        paste_button = ctk.CTkButton(input_frame, text="Paste", command=self.paste_from_clipboard, width=80)
+        paste_button.grid(row=0, column=2, padx=(0, 10), pady=10)
+
         self.load_details_button = ctk.CTkButton(input_frame, text="Load Details", command=self.load_video_details)
-        self.load_details_button.grid(row=0, column=2, padx=10, pady=10)
+        self.load_details_button.grid(row=0, column=3, padx=10, pady=10)
 
         # --- Details & Options Frame ---
         details_options_frame = ctk.CTkFrame(self, corner_radius=10)
@@ -230,6 +234,15 @@ class App(ctk.CTk):
         downloads_container = ctk.CTkScrollableFrame(self, label_text="Downloads")
         downloads_container.grid(row=3, column=0, padx=10, pady=10, sticky="nsew")
         self.downloads_frame = downloads_container
+
+    def paste_from_clipboard(self):
+        try:
+            clipboard_content = self.clipboard_get()
+            self.url_entry.delete(0, "end")
+            self.url_entry.insert(0, clipboard_content)
+        except tk.TclError:
+            # This can happen if the clipboard is empty
+            pass
 
     def load_video_details(self):
         url = self.url_entry.get()
