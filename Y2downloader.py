@@ -11,6 +11,7 @@ import time
 import logging
 import queue
 import sys
+import subprocess
 
 # --- Path and Environment Setup ---
 def get_ffmpeg_path():
@@ -49,6 +50,7 @@ class DownloadTask:
         self.cancel_flag = False
         self.start_time = None
         self.task_id = id(self)
+        self.filepath = None
 
         self._create_ui()
         self.start_download()
@@ -77,8 +79,15 @@ class DownloadTask:
         self.status_label = ctk.CTkLabel(self.frame, text="Starting...", font=("Roboto", 12, "italic"))
         self.status_label.pack(side="top", padx=10, pady=5, anchor="w")
 
-        self.cancel_button = ctk.CTkButton(self.frame, text="Cancel", command=self.cancel, fg_color="#d9534f", hover_color="#c9302c")
-        self.cancel_button.pack(side="right", padx=10, pady=10)
+        # --- Action Buttons Frame ---
+        self.actions_frame = ctk.CTkFrame(self.frame, fg_color="transparent")
+        self.actions_frame.pack(fill="x", padx=10, pady=5)
+
+        self.cancel_button = ctk.CTkButton(self.actions_frame, text="Cancel", command=self.cancel, fg_color="#d9534f", hover_color="#c9302c")
+        self.cancel_button.pack(side="right")
+
+        self.open_folder_button = ctk.CTkButton(self.actions_frame, text="Open Folder", command=self.open_containing_folder)
+        self.play_file_button = ctk.CTkButton(self.actions_frame, text="Play File", command=self.play_file)
 
     def start_download(self):
         self.start_time = time.time()
@@ -104,7 +113,10 @@ class DownloadTask:
                 })
         elif d['status'] == 'finished':
             elapsed_time = time.time() - self.start_time
-            download_queue.put({'task_id': self.task_id, 'status': 'finished', 'elapsed_time': elapsed_time})
+            download_queue.put({
+                'task_id': self.task_id, 'status': 'finished', 
+                'filepath': d.get('filename'), 'elapsed_time': elapsed_time
+            })
 
     def _download_thread(self):
         try:
@@ -147,7 +159,20 @@ class DownloadTask:
             self.progress_bar.set(1)
             self.main_progress_label.configure(text="Download Progress: 100.00%")
             self.status_label.configure(text=f"Completed in {data['elapsed_time']:.2f} seconds.")
-            self.cancel_button.configure(state="disabled")
+            
+            # Determine final filepath
+            intermediate_path = data.get('filepath')
+            if 'audio' in self.quality_format or self.quality_format == 'bestaudio/best':
+                base, _ = os.path.splitext(intermediate_path)
+                self.filepath = base + '.mp3'
+            else:
+                self.filepath = intermediate_path
+
+            # Update buttons
+            self.cancel_button.pack_forget()
+            self.open_folder_button.pack(side="right", padx=(0, 5))
+            self.play_file_button.pack(side="right", padx=(0, 5))
+
         elif status == 'error':
             self.status_label.configure(text=data['message'], text_color="red")
             self.cancel_button.configure(state="disabled")
@@ -159,6 +184,33 @@ class DownloadTask:
         self.cancel_flag = True
         download_queue.put({'task_id': self.task_id, 'status': 'cancelled'})
         messagebox.showinfo("Cancelled", f"Cancelling download for: {self.title_label.cget('text')}")
+
+    def open_containing_folder(self):
+        if self.filepath:
+            directory = os.path.dirname(self.filepath)
+            try:
+                if sys.platform == "win32":
+                    os.startfile(directory)
+                elif sys.platform == "darwin": # macOS
+                    subprocess.run(["open", directory], check=True)
+                else: # Linux
+                    subprocess.run(["xdg-open", directory], check=True)
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not open folder: {e}")
+
+    def play_file(self):
+        if self.filepath and os.path.exists(self.filepath):
+            try:
+                if sys.platform == "win32":
+                    os.startfile(self.filepath)
+                elif sys.platform == "darwin":
+                    subprocess.run(["open", self.filepath], check=True)
+                else:
+                    subprocess.run(["xdg-open", self.filepath], check=True)
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not play file: {e}")
+        else:
+            messagebox.showerror("Error", "File not found. It may have been moved or deleted.")
 
 class App(ctk.CTk):
     def __init__(self):
