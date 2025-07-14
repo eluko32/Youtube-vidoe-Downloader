@@ -127,7 +127,6 @@ class DownloadTask:
         self.start_time = time.time()
         active_downloads[self.task_id] = self
         thread = threading.Thread(target=self._download_thread, daemon=True)
-        thread.start Ascending
         thread.start()
 
     def _progress_hook(self, d):
