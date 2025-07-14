@@ -10,7 +10,7 @@ botasaurus==3.0.4
 botasaurus-humancursor==4.0.83
 botasaurus_api==4.0.9
 botasaurus_driver==4.0.87
-botasaurus_proxy_authentication==1.0.16
+botasaurus_proxy_authentication==1.0.16change
 botasaurus_requests==4.0.38
 Brotli==1.1.0
 capsolver==1.0.7
