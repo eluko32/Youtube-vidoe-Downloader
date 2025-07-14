@@ -1,0 +1,152 @@
+DEBUG:root:Output path for download: C:/Users/Elias Legese/Downloads/New folder\%(title)s.%(ext)s
+DEBUG:PIL.Image:Importing BlpImagePlugin
+DEBUG:PIL.Image:Importing BmpImagePlugin
+DEBUG:PIL.Image:Importing BufrStubImagePlugin
+DEBUG:PIL.Image:Importing CurImagePlugin
+DEBUG:PIL.Image:Importing DcxImagePlugin
+DEBUG:PIL.Image:Importing DdsImagePlugin
+DEBUG:PIL.Image:Importing EpsImagePlugin
+DEBUG:PIL.Image:Importing FitsImagePlugin
+DEBUG:PIL.Image:Importing FliImagePlugin
+DEBUG:PIL.Image:Importing FpxImagePlugin
+DEBUG:PIL.Image:Image: failed to import FpxImagePlugin: No module named 'olefile'
+DEBUG:PIL.Image:Importing FtexImagePlugin
+DEBUG:PIL.Image:Importing GbrImagePlugin
+DEBUG:PIL.Image:Importing GifImagePlugin
+DEBUG:PIL.Image:Importing GribStubImagePlugin
+DEBUG:PIL.Image:Importing Hdf5StubImagePlugin
+DEBUG:PIL.Image:Importing IcnsImagePlugin
+DEBUG:PIL.Image:Importing IcoImagePlugin
+DEBUG:PIL.Image:Importing ImImagePlugin
+DEBUG:PIL.Image:Importing ImtImagePlugin
+DEBUG:PIL.Image:Importing IptcImagePlugin
+DEBUG:PIL.Image:Importing JpegImagePlugin
+DEBUG:PIL.Image:Importing Jpeg2KImagePlugin
+DEBUG:PIL.Image:Importing McIdasImagePlugin
+DEBUG:PIL.Image:Importing MicImagePlugin
+DEBUG:PIL.Image:Image: failed to import MicImagePlugin: No module named 'olefile'
+DEBUG:PIL.Image:Importing MpegImagePlugin
+DEBUG:PIL.Image:Importing MpoImagePlugin
+DEBUG:PIL.Image:Importing MspImagePlugin
+DEBUG:PIL.Image:Importing PalmImagePlugin
+DEBUG:PIL.Image:Importing PcdImagePlugin
+DEBUG:PIL.Image:Importing PcxImagePlugin
+DEBUG:PIL.Image:Importing PdfImagePlugin
+DEBUG:PIL.Image:Importing PixarImagePlugin
+DEBUG:PIL.Image:Importing PngImagePlugin
+DEBUG:PIL.Image:Importing PpmImagePlugin
+DEBUG:PIL.Image:Importing PsdImagePlugin
+DEBUG:PIL.Image:Importing QoiImagePlugin
+DEBUG:PIL.Image:Importing SgiImagePlugin
+DEBUG:PIL.Image:Importing SpiderImagePlugin
+DEBUG:PIL.Image:Importing SunImagePlugin
+DEBUG:PIL.Image:Importing TgaImagePlugin
+DEBUG:PIL.Image:Importing TiffImagePlugin
+DEBUG:PIL.Image:Importing WebPImagePlugin
+DEBUG:PIL.Image:Importing WmfImagePlugin
+DEBUG:PIL.Image:Importing XbmImagePlugin
+DEBUG:PIL.Image:Importing XpmImagePlugin
+DEBUG:PIL.Image:Importing XVThumbImagePlugin
+DEBUG:root:Output path for download: C:/Users/Elias Legese/Downloads/New folder\%(title)s.%(ext)s
+DEBUG:root:Output path for download: C:/Users/Elias Legese/Downloads/New folder\%(title)s.%(ext)s
+DEBUG:root:Output path for download: C:/Users/Elias Legese/Downloads/New folder\%(title)s.%(ext)s
+DEBUG:root:Output path for download: C:\Users\Elias Legese/Downloads\%(title)s.%(ext)s
+DEBUG:root:Output path for download: C:/Users/Elias Legese/Downloads/New folder\%(title)s.%(ext)s
+DEBUG:PIL.Image:Importing AvifImagePlugin
+DEBUG:PIL.Image:Importing BlpImagePlugin
+DEBUG:PIL.Image:Importing BmpImagePlugin
+DEBUG:PIL.Image:Importing BufrStubImagePlugin
+DEBUG:PIL.Image:Importing CurImagePlugin
+DEBUG:PIL.Image:Importing DcxImagePlugin
+DEBUG:PIL.Image:Importing DdsImagePlugin
+DEBUG:PIL.Image:Importing EpsImagePlugin
+DEBUG:PIL.Image:Importing FitsImagePlugin
+DEBUG:PIL.Image:Importing FliImagePlugin
+DEBUG:PIL.Image:Importing FpxImagePlugin
+DEBUG:PIL.Image:Image: failed to import FpxImagePlugin: No module named 'olefile'
+DEBUG:PIL.Image:Importing FtexImagePlugin
+DEBUG:PIL.Image:Importing GbrImagePlugin
+DEBUG:PIL.Image:Importing GifImagePlugin
+DEBUG:PIL.Image:Importing GribStubImagePlugin
+DEBUG:PIL.Image:Importing Hdf5StubImagePlugin
+DEBUG:PIL.Image:Importing IcnsImagePlugin
+DEBUG:PIL.Image:Importing IcoImagePlugin
+DEBUG:PIL.Image:Importing ImImagePlugin
+DEBUG:PIL.Image:Importing ImtImagePlugin
+DEBUG:PIL.Image:Importing IptcImagePlugin
+DEBUG:PIL.Image:Importing JpegImagePlugin
+DEBUG:PIL.Image:Importing Jpeg2KImagePlugin
+DEBUG:PIL.Image:Importing McIdasImagePlugin
+DEBUG:PIL.Image:Importing MicImagePlugin
+DEBUG:PIL.Image:Image: failed to import MicImagePlugin: No module named 'olefile'
+DEBUG:PIL.Image:Importing MpegImagePlugin
+DEBUG:PIL.Image:Importing MpoImagePlugin
+DEBUG:PIL.Image:Importing MspImagePlugin
+DEBUG:PIL.Image:Importing PalmImagePlugin
+DEBUG:PIL.Image:Importing PcdImagePlugin
+DEBUG:PIL.Image:Importing PcxImagePlugin
+DEBUG:PIL.Image:Importing PdfImagePlugin
+DEBUG:PIL.Image:Importing PixarImagePlugin
+DEBUG:PIL.Image:Importing PngImagePlugin
+DEBUG:PIL.Image:Importing PpmImagePlugin
+DEBUG:PIL.Image:Importing PsdImagePlugin
+DEBUG:PIL.Image:Importing QoiImagePlugin
+DEBUG:PIL.Image:Importing SgiImagePlugin
+DEBUG:PIL.Image:Importing SpiderImagePlugin
+DEBUG:PIL.Image:Importing SunImagePlugin
+DEBUG:PIL.Image:Importing TgaImagePlugin
+DEBUG:PIL.Image:Importing TiffImagePlugin
+DEBUG:PIL.Image:Importing WebPImagePlugin
+DEBUG:PIL.Image:Importing WmfImagePlugin
+DEBUG:PIL.Image:Importing XbmImagePlugin
+DEBUG:PIL.Image:Importing XpmImagePlugin
+DEBUG:PIL.Image:Importing XVThumbImagePlugin
+2025-07-14 14:40:05,163 - DEBUG - Importing AvifImagePlugin
+2025-07-14 14:40:05,164 - DEBUG - Importing BlpImagePlugin
+2025-07-14 14:40:05,166 - DEBUG - Importing BmpImagePlugin
+2025-07-14 14:40:05,167 - DEBUG - Importing BufrStubImagePlugin
+2025-07-14 14:40:05,168 - DEBUG - Importing CurImagePlugin
+2025-07-14 14:40:05,169 - DEBUG - Importing DcxImagePlugin
+2025-07-14 14:40:05,171 - DEBUG - Importing DdsImagePlugin
+2025-07-14 14:40:05,177 - DEBUG - Importing EpsImagePlugin
+2025-07-14 14:40:05,179 - DEBUG - Importing FitsImagePlugin
+2025-07-14 14:40:05,182 - DEBUG - Importing FliImagePlugin
+2025-07-14 14:40:05,183 - DEBUG - Importing FpxImagePlugin
+2025-07-14 14:40:05,184 - DEBUG - Image: failed to import FpxImagePlugin: No module named 'olefile'
+2025-07-14 14:40:05,185 - DEBUG - Importing FtexImagePlugin
+2025-07-14 14:40:05,186 - DEBUG - Importing GbrImagePlugin
+2025-07-14 14:40:05,187 - DEBUG - Importing GifImagePlugin
+2025-07-14 14:40:05,187 - DEBUG - Importing GribStubImagePlugin
+2025-07-14 14:40:05,188 - DEBUG - Importing Hdf5StubImagePlugin
+2025-07-14 14:40:05,189 - DEBUG - Importing IcnsImagePlugin
+2025-07-14 14:40:05,193 - DEBUG - Importing IcoImagePlugin
+2025-07-14 14:40:05,195 - DEBUG - Importing ImImagePlugin
+2025-07-14 14:40:05,196 - DEBUG - Importing ImtImagePlugin
+2025-07-14 14:40:05,198 - DEBUG - Importing IptcImagePlugin
+2025-07-14 14:40:05,199 - DEBUG - Importing JpegImagePlugin
+2025-07-14 14:40:05,199 - DEBUG - Importing Jpeg2KImagePlugin
+2025-07-14 14:40:05,199 - DEBUG - Importing McIdasImagePlugin
+2025-07-14 14:40:05,200 - DEBUG - Importing MicImagePlugin
+2025-07-14 14:40:05,201 - DEBUG - Image: failed to import MicImagePlugin: No module named 'olefile'
+2025-07-14 14:40:05,201 - DEBUG - Importing MpegImagePlugin
+2025-07-14 14:40:05,202 - DEBUG - Importing MpoImagePlugin
+2025-07-14 14:40:05,212 - DEBUG - Importing MspImagePlugin
+2025-07-14 14:40:05,213 - DEBUG - Importing PalmImagePlugin
+2025-07-14 14:40:05,215 - DEBUG - Importing PcdImagePlugin
+2025-07-14 14:40:05,216 - DEBUG - Importing PcxImagePlugin
+2025-07-14 14:40:05,216 - DEBUG - Importing PdfImagePlugin
+2025-07-14 14:40:05,224 - DEBUG - Importing PixarImagePlugin
+2025-07-14 14:40:05,225 - DEBUG - Importing PngImagePlugin
+2025-07-14 14:40:05,225 - DEBUG - Importing PpmImagePlugin
+2025-07-14 14:40:05,226 - DEBUG - Importing PsdImagePlugin
+2025-07-14 14:40:05,227 - DEBUG - Importing QoiImagePlugin
+2025-07-14 14:40:05,229 - DEBUG - Importing SgiImagePlugin
+2025-07-14 14:40:05,230 - DEBUG - Importing SpiderImagePlugin
+2025-07-14 14:40:05,232 - DEBUG - Importing SunImagePlugin
+2025-07-14 14:40:05,233 - DEBUG - Importing TgaImagePlugin
+2025-07-14 14:40:05,234 - DEBUG - Importing TiffImagePlugin
+2025-07-14 14:40:05,234 - DEBUG - Importing WebPImagePlugin
+2025-07-14 14:40:05,236 - DEBUG - Importing WmfImagePlugin
+2025-07-14 14:40:05,237 - DEBUG - Importing XbmImagePlugin
+2025-07-14 14:40:05,239 - DEBUG - Importing XpmImagePlugin
+2025-07-14 14:40:05,240 - DEBUG - Importing XVThumbImagePlugin
